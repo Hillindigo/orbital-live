@@ -200,8 +200,13 @@ export default function Home() {
               <div><small>纬度</small><strong>{Math.abs(selected.latitude).toFixed(2)}°<span> {selected.latitude >= 0 ? "N" : "S"}</span></strong></div>
               <div><small>经度</small><strong>{Math.abs(selected.longitude).toFixed(2)}°<span> {selected.longitude >= 0 ? "E" : "W"}</span></strong></div>
             </div>
+            <div className="satellite-facts" aria-label="卫星简介">
+              <div><small>归属国家/地区</small><strong>{selected.country}</strong></div>
+              <div><small>运营方</small><strong>{selected.operator}</strong></div>
+              <div><small>发射年份</small><strong>{selected.launchYear ?? "未知"}</strong></div>
+            </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
-            <p className="card-hint">白色轨迹为未来一个轨道周期，地表光圈为当前视场范围。取消追踪后才能选择其他卫星。</p>
+            <p className="card-hint">简介来自 TLE 国际标识符与公开星座分类；白色轨迹为未来一个轨道周期。取消追踪后才能选择其他卫星。</p>
           </>
         ) : (
           <div className="empty-selection"><span className="reticle" /><p>选择一个卫星光点<br /><small>查看实时遥测与轨道路径</small></p></div>

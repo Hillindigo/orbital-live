@@ -18,10 +18,33 @@ type OrbitRecord = {
   line2: string;
   satrec: SatRec;
   period: number;
+  country: string;
+  operator: string;
+  launchYear: number | null;
 };
 
 let records: OrbitRecord[] = [];
 const EARTH_RADIUS = 6378.137;
+
+function getOwnership(name: string, group: string) {
+  const normalized = name.toUpperCase();
+  if (normalized.includes("TIANGONG") || normalized.includes("TIANHE") || normalized.includes("WENTIAN") || normalized.includes("MENGTIAN") || normalized.includes("天宫")) {
+    return { country: "中国", operator: "中国载人航天工程" };
+  }
+  if (group === "starlink" || group === "gps-ops") {
+    return { country: "美国", operator: group === "starlink" ? "SpaceX" : "美国太空军" };
+  }
+  if (normalized.includes("ISS") || normalized.includes("ZARYA") || normalized.includes("NAUKA")) {
+    return { country: "国际合作", operator: "NASA / ESA / Roscosmos / JAXA / CSA" };
+  }
+  return { country: "未标注", operator: "公开目录未提供" };
+}
+
+function getLaunchYear(line1: string) {
+  const launchYear = Number.parseInt(line1.slice(9, 11), 10);
+  if (!Number.isInteger(launchYear)) return null;
+  return launchYear >= 57 ? 1900 + launchYear : 2000 + launchYear;
+}
 
 function parseTle(text: string, group: string): OrbitRecord[] {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -30,14 +53,18 @@ function parseTle(text: string, group: string): OrbitRecord[] {
     const [name, line1, line2] = lines.slice(index, index + 3);
     if (!line1.startsWith("1 ") || !line2.startsWith("2 ")) continue;
     const meanMotion = Number.parseFloat(line2.slice(52, 63));
+    const cleanName = name.replace(/^0 /, "").trim();
+    const ownership = getOwnership(cleanName, group);
     output.push({
-      name: name.replace(/^0 /, "").trim(),
+      name: cleanName,
       norad: line1.slice(2, 7).trim(),
       group,
       line1,
       line2,
       satrec: twoline2satrec(line1, line2),
       period: meanMotion > 0 ? 1440 / meanMotion : 0,
+      ...ownership,
+      launchYear: getLaunchYear(line1),
     });
   }
   return output;
@@ -129,6 +156,9 @@ self.onmessage = (event: MessageEvent) => {
         norad: record.norad,
         group: record.group,
         period: record.period,
+        country: record.country,
+        operator: record.operator,
+        launchYear: record.launchYear,
       })),
     });
   } else if (message.type === "frame") {

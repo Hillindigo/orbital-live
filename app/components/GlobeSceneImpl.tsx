@@ -12,6 +12,9 @@ export type SatelliteMeta = {
   norad: string;
   group: string;
   period: number;
+  country: string;
+  operator: string;
+  launchYear: number | null;
 };
 
 export type SatelliteSnapshot = SatelliteMeta & {

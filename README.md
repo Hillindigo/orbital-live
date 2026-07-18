@@ -80,6 +80,11 @@ and IDs are intentionally not stored in this repository.
 - `worker/index.ts`: Cloudflare Worker entry point
 - `brand-spec.md`: visual direction
 
+Satellite cards derive launch year from the two-digit launch year in the TLE
+international designator. Ownership is a catalog classification for the
+supported groups, not a field transmitted by the satellite; unknown ownership
+is shown explicitly rather than guessed.
+
 ## Earth Night Lights
 
 The globe uses NASA's 2016 Black Marble 0.1-degree global night-light composite
