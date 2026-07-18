@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.vinext/
+build/
+.wrangler/
+.dev-server*.log
+.dev-server.pid
+data/
+*.tgz
+*.zip
+tsconfig.tsbuildinfo
