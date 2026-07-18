@@ -29,7 +29,7 @@ export type GlobeSceneProps = {
   onSelect: (satellite: SatelliteSnapshot | null) => void;
   onStatus: (status: string) => void;
   onTime: (time: number) => void;
-  onApi: (api: { focus: (index: number) => void; clear: () => void; resetTime: () => void }) => void;
+  onApi: (api: { focus: (index: number) => boolean; clear: () => void; resetTime: () => void }) => void;
 };
 
 const GROUP_COLORS: Record<string, THREE.Color> = {
@@ -386,6 +386,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let renderedPositions: Float32Array | null = null;
     let telemetry: Float32Array | null = null;
     let selectedIndex = -1;
+    let pendingFocusIndex = -1;
     let cameraBeforeFocus: THREE.Vector3 | null = null;
     let targetBeforeFocus: THREE.Vector3 | null = null;
     let autoRotateBeforeFocus = controls.autoRotate;
@@ -452,8 +453,12 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     };
 
     const focus = (index: number) => {
-      if (!satellites[index] || !renderedPositions) return;
-      if (selectedIndex >= 0) return;
+      if (!satellites[index]) return false;
+      if (selectedIndex >= 0) return false;
+      if (!renderedPositions) {
+        pendingFocusIndex = index;
+        return true;
+      }
       cameraBeforeFocus = camera.position.clone();
       targetBeforeFocus = controls.target.clone();
       autoRotateBeforeFocus = controls.autoRotate;
@@ -470,18 +475,22 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       );
       focusTarget = position.clone().normalize().multiplyScalar(2.7);
       worker.postMessage({ type: "orbit", index, time: simulationTime });
+      return true;
     };
     const clear = () => {
+      if (selectedIndex < 0 && pendingFocusIndex < 0) return;
       selectedIndex = -1;
+      pendingFocusIndex = -1;
       marker.visible = false;
       orbitLine.visible = false;
       coverageLine.visible = false;
+      orbitGeometry.deleteAttribute("position");
+      coverageGeometry.deleteAttribute("position");
       if (cameraBeforeFocus && targetBeforeFocus) {
+        camera.position.copy(cameraBeforeFocus);
         controls.target.copy(targetBeforeFocus);
-        focusTarget = cameraBeforeFocus.clone();
-      } else {
-        focusTarget = null;
       }
+      focusTarget = null;
       controls.autoRotate = autoRotateBeforeFocus;
       cameraBeforeFocus = null;
       targetBeforeFocus = null;
@@ -526,6 +535,11 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         if (!renderedPositions || renderedPositions.length !== nowPositions!.length) {
           renderedPositions = nowPositions!.slice();
           pointsGeometry.setAttribute("position", new THREE.BufferAttribute(renderedPositions, 3));
+        }
+        if (pendingFocusIndex >= 0) {
+          const index = pendingFocusIndex;
+          pendingFocusIndex = -1;
+          focus(index);
         }
         if (selectedIndex >= 0) emitSelection(selectedIndex);
         onTime(message.time);

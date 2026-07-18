@@ -39,7 +39,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(true);
   const [status, setStatus] = useState("正在连接轨道数据");
   const [sceneApi, setSceneApi] = useState<{
-    focus: (index: number) => void;
+    focus: (index: number) => boolean;
     clear: () => void;
     resetTime: () => void;
   } | null>(null);
@@ -98,8 +98,7 @@ export default function Home() {
 
   const selectFromSearch = (satellite: SatelliteMeta) => {
     if (selected) return;
-    sceneApi?.focus(satellite.index);
-    setQuery("");
+    if (sceneApi?.focus(satellite.index)) setQuery("");
   };
 
   return (
