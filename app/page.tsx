@@ -223,7 +223,7 @@ export default function Home() {
       </section>
 
       <div className="gesture-hint"><span className="mouse-shape" /><p>拖动旋转 · 滚轮缩放 · 点击跟踪</p></div>
-      <footer><span>EARTH / WGS84</span><span>DATA · CELESTRAK</span><span>PROPAGATION · SATELLITE.JS</span></footer>
+      <footer><span>EARTH / WGS84</span><span>NIGHT LIGHTS · NASA BLACK MARBLE 2016</span><span>DATA · CELESTRAK</span><span>PROPAGATION · SATELLITE.JS</span></footer>
     </main>
   );
 }

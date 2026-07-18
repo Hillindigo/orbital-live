@@ -76,5 +76,15 @@ and IDs are intentionally not stored in this repository.
 - `app/workers/orbit.worker.ts`: TLE parsing and orbit propagation
 - `app/api/tle/route.ts`: CelesTrak proxy and snapshot fallback
 - `public/tle/`: bundled TLE snapshots
+- `public/earth-night-lights-2016.jpg`: NASA Black Marble satellite-derived night-light composite
 - `worker/index.ts`: Cloudflare Worker entry point
 - `brand-spec.md`: visual direction
+
+## Earth Night Lights
+
+The globe uses NASA's 2016 Black Marble 0.1-degree global night-light composite
+(`3600x1800`) as an emissive texture. The shader masks it with the calculated
+solar direction, so lights are visible only on the simulated night side. This
+is a historical satellite composite, not live city-light telemetry; NASA
+describes the source as cloud-free monthly nighttime observations. Source:
+<https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/>.

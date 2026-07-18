@@ -38,18 +38,6 @@ const GROUP_COLORS: Record<string, THREE.Color> = {
   stations: new THREE.Color("#ff7f66"),
 };
 
-const CITY_LIGHTS = [
-  [116.4, 39.9], [121.5, 31.2], [113.3, 23.1], [114.1, 22.5], [104.1, 30.7], [106.6, 29.6],
-  [139.7, 35.7], [135.5, 34.7], [126.98, 37.6], [103.8, 1.35], [100.5, 13.75], [106.8, -6.2],
-  [72.9, 19.1], [77.2, 28.6], [77.6, 13], [67, 24.9], [55.3, 25.2], [51.4, 35.7],
-  [37.6, 55.8], [30.3, 59.9], [28.98, 41], [2.35, 48.86], [-0.13, 51.5], [4.9, 52.37],
-  [13.4, 52.52], [12.5, 41.9], [-3.7, 40.4], [18.1, 59.3], [19.04, 47.5], [30.5, 50.45],
-  [-74, 40.7], [-87.6, 41.9], [-118.25, 34.05], [-122.4, 37.8], [-79.4, 43.7], [-99.1, 19.4],
-  [-46.6, -23.55], [-43.2, -22.9], [-58.4, -34.6], [-77, -12], [-74.1, 4.7], [-70.7, -33.45],
-  [31.2, 30.05], [28.05, -26.2], [36.8, -1.3], [3.4, 6.5], [15.3, -4.3], [38.75, 9],
-  [151.2, -33.9], [144.96, -37.8], [174.8, -36.85],
-] as const;
-
 function lonLatToVector(lon: number, lat: number, radius = 1) {
   const longitude = THREE.MathUtils.degToRad(lon);
   const latitude = THREE.MathUtils.degToRad(lat);
@@ -109,24 +97,8 @@ function createEarthTextures() {
     context.fill("evenodd");
   });
 
-  const lightsCanvas = document.createElement("canvas");
-  lightsCanvas.width = width;
-  lightsCanvas.height = height;
-  const lights = lightsCanvas.getContext("2d")!;
-  CITY_LIGHTS.forEach(([longitude, latitude], cityIndex) => {
-    const x = ((longitude + 180) / 360) * width;
-    const y = ((90 - latitude) / 180) * height;
-    const radius = cityIndex < 18 ? 10 : 7;
-    const gradient = lights.createRadialGradient(x, y, 0, x, y, radius);
-    gradient.addColorStop(0, "rgba(255,238,174,1)");
-    gradient.addColorStop(0.18, "rgba(255,190,88,.8)");
-    gradient.addColorStop(1, "rgba(255,150,38,0)");
-    lights.fillStyle = gradient;
-    lights.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  });
-
   const landMap = new THREE.CanvasTexture(landCanvas);
-  const lightsMap = new THREE.CanvasTexture(lightsCanvas);
+  const lightsMap = new THREE.TextureLoader().load("/earth-night-lights-2016.jpg");
   landMap.colorSpace = THREE.NoColorSpace;
   lightsMap.colorSpace = THREE.SRGBColorSpace;
   return { landMap, lightsMap };
@@ -181,7 +153,9 @@ function createEarth() {
         float solar = dot(normalize(vNormalWorld), lightDirection);
         float daylight = smoothstep(-0.12, 0.18, solar);
         float land = texture2D(landMap, vUv).r;
-        vec3 cityLights = texture2D(lightsMap, vUv).rgb;
+        vec3 observedNight = texture2D(lightsMap, vUv).rgb;
+        float observedLuminance = dot(observedNight, vec3(0.2126, 0.7152, 0.0722));
+        vec3 cityLights = observedNight * smoothstep(0.035, 0.32, observedLuminance);
         float polar = pow(abs(vNormalWorld.y), 3.0);
         vec3 oceanNight = vec3(0.003, 0.012, 0.025);
         vec3 oceanDay = vec3(0.012, 0.105, 0.19);
@@ -191,7 +165,7 @@ function createEarth() {
         vec3 day = mix(oceanDay, landDay, land);
         vec3 ice = vec3(0.48, 0.68, 0.7) * polar * land * daylight * 0.48;
         vec3 color = mix(night, day, daylight) + ice;
-        color += cityLights * (1.0 - smoothstep(-0.28, 0.02, solar)) * 2.3;
+        color += cityLights * (1.0 - smoothstep(-0.28, 0.02, solar)) * 2.8;
         color += vec3(0.05, 0.19, 0.2) * exp(-pow(solar / 0.075, 2.0)) * 0.35;
         float rim = pow(1.0 - max(dot(normalize(vNormalWorld), normalize(cameraPosition - vPositionWorld)), 0.0), 3.0);
         color += vec3(0.02, 0.18, 0.23) * rim;
