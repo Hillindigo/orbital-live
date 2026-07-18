@@ -41,6 +41,7 @@ export default function Home() {
   const [sceneApi, setSceneApi] = useState<{
     focus: (index: number) => void;
     clear: () => void;
+    resetTime: () => void;
   } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -96,6 +97,7 @@ export default function Home() {
   };
 
   const selectFromSearch = (satellite: SatelliteMeta) => {
+    if (selected) return;
     sceneApi?.focus(satellite.index);
     setQuery("");
   };
@@ -200,7 +202,7 @@ export default function Home() {
               <div><small>经度</small><strong>{Math.abs(selected.longitude).toFixed(2)}°<span> {selected.longitude >= 0 ? "E" : "W"}</span></strong></div>
             </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
-            <p className="card-hint">白色轨迹为未来一个轨道周期，地表光圈为当前视场范围。</p>
+            <p className="card-hint">白色轨迹为未来一个轨道周期，地表光圈为当前视场范围。取消追踪后才能选择其他卫星。</p>
           </>
         ) : (
           <div className="empty-selection"><span className="reticle" /><p>选择一个卫星光点<br /><small>查看实时遥测与轨道路径</small></p></div>
@@ -216,6 +218,7 @@ export default function Home() {
           <div className="track"><i style={{ width: `${timelineProgress}%` }} /><b style={{ left: `${timelineProgress}%` }} /></div>
         </div>
         <div className="speed-control">
+          <button className="now-button" onClick={() => sceneApi?.resetTime()}>现在</button>
           {[1, 10, 60].map((value) => (
             <button key={value} className={speed === value ? "active" : ""} onClick={() => setSpeed(value)}>{value}×</button>
           ))}

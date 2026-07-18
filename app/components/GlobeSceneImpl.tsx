@@ -29,7 +29,7 @@ export type GlobeSceneProps = {
   onSelect: (satellite: SatelliteSnapshot | null) => void;
   onStatus: (status: string) => void;
   onTime: (time: number) => void;
-  onApi: (api: { focus: (index: number) => void; clear: () => void }) => void;
+  onApi: (api: { focus: (index: number) => void; clear: () => void; resetTime: () => void }) => void;
 };
 
 const GROUP_COLORS: Record<string, THREE.Color> = {
@@ -450,6 +450,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
 
     const focus = (index: number) => {
       if (!satellites[index] || !renderedPositions) return;
+      if (selectedIndex >= 0) return;
       selectedIndex = index;
       controls.autoRotate = false;
       marker.visible = true;
@@ -472,7 +473,13 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       focusTarget = null;
       onSelect(null);
     };
-    onApi({ focus, clear });
+    const resetTime = () => {
+      simulationTime = Date.now();
+      lastRealTime = performance.now();
+      window.clearTimeout(updateTimer);
+      requestFrame();
+    };
+    onApi({ focus, clear, resetTime });
 
     const requestFrame = () => {
       if (disposed || !satellites.length) return;

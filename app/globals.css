@@ -133,6 +133,8 @@ h1 em { color: #8dbfc2; font-style: normal; font-weight: 400; }
 .track i { display: block; height: 1px; background: linear-gradient(90deg, #427d86, var(--cyan)); transition: width 1s linear; }
 .track b { position: absolute; left: 28%; top: -3px; width: 7px; height: 7px; border: 1px solid var(--cyan); border-radius: 50%; background: #082127; box-shadow: 0 0 8px rgba(112,232,240,.6); }
 .speed-control { display: flex; gap: 3px; }
+.speed-control .now-button { min-width: 38px; color: #8caeb2; border-color: rgba(112,232,240,.22); }
+.speed-control .now-button:hover, .speed-control .now-button:focus-visible { color: var(--cyan); border-color: rgba(112,232,240,.55); background: rgba(112,232,240,.07); }
 .speed-control button { min-width: 30px; height: 25px; padding: 0 7px; border: 1px solid transparent; background: transparent; color: #5d777d; font: 8px "IBM Plex Mono", monospace; cursor: pointer; }
 .speed-control button:hover, .speed-control button:focus-visible { color: #bdd2d5; outline: 0; }
 .speed-control button.active { color: var(--cyan); border-color: rgba(112,232,240,.25); background: rgba(112,232,240,.06); }
