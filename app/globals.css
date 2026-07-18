@@ -103,6 +103,9 @@ h1 em { color: #8dbfc2; font-style: normal; font-weight: 400; }
 .card-heading small { display: block; margin-bottom: 4px; color: var(--cyan); font: 8px "IBM Plex Mono", monospace; letter-spacing: .14em; text-transform: uppercase; }
 .card-heading h2 { margin: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 500; letter-spacing: -.02em; }
 .norad { color: #789095; font: 9px "IBM Plex Mono", monospace; }
+.card-actions { display: flex; align-items: center; gap: 8px; }
+.card-actions button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(112,232,240,.2); background: transparent; color: #789095; cursor: pointer; font: 16px/1 "IBM Plex Mono", monospace; }
+.card-actions button:hover, .card-actions button:focus-visible { color: var(--cyan); border-color: rgba(112,232,240,.55); outline: 0; background: rgba(112,232,240,.07); }
 .telemetry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; padding: 18px 0 15px; }
 .telemetry-grid small { display: block; margin-bottom: 4px; color: #637d82; font: 8px "IBM Plex Mono", monospace; letter-spacing: .11em; text-transform: uppercase; }
 .telemetry-grid strong { font: 16px "IBM Plex Mono", monospace; font-weight: 400; }

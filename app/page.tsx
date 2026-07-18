@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobeScene, type SatelliteMeta, type SatelliteSnapshot } from "./components/GlobeScene";
 
 const GROUPS = [
@@ -34,16 +34,39 @@ export default function Home() {
   const [satellites, setSatellites] = useState<SatelliteMeta[]>([]);
   const [selected, setSelected] = useState<SatelliteSnapshot | null>(null);
   const [query, setQuery] = useState("");
-  const [clock, setClock] = useState(new Date());
+  const [simulationTime, setSimulationTime] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
   const [status, setStatus] = useState("正在连接轨道数据");
-  const [sceneApi, setSceneApi] = useState<{ focus: (index: number) => void } | null>(null);
+  const [sceneApi, setSceneApi] = useState<{
+    focus: (index: number) => void;
+    clear: () => void;
+  } | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const id = window.setInterval(() => setClock(new Date()), 1000);
-    return () => window.clearInterval(id);
+    const focusSearch = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
   }, []);
+
+  useEffect(() => {
+    if (!selected || !sceneApi) return;
+    const cancelTracking = (event: KeyboardEvent) => {
+      if (event.key === "Escape") sceneApi.clear();
+    };
+    window.addEventListener("keydown", cancelTracking);
+    return () => window.removeEventListener("keydown", cancelTracking);
+  }, [sceneApi, selected]);
+
+  const clock = simulationTime === null ? null : new Date(simulationTime);
+  const timelineProgress = clock ? 28 + ((clock.getSeconds() / 60) * 58) : 28;
 
   const counts = useMemo(() => {
     const output: Record<string, number> = {};
@@ -86,6 +109,7 @@ export default function Home() {
         onReady={setSatellites}
         onSelect={setSelected}
         onStatus={setStatus}
+        onTime={setSimulationTime}
         onApi={setSceneApi}
       />
 
@@ -102,8 +126,8 @@ export default function Home() {
           <span>SGP4 本地推算</span>
         </div>
         <div className="utc-clock">
-          <span>{formatDate(clock)}</span>
-          <strong>{formatClock(clock)}</strong>
+          <span>{clock ? formatDate(clock) : "正在同步时间"}</span>
+          <strong>{clock ? formatClock(clock) : "--:--:--"}</strong>
         </div>
       </header>
 
@@ -121,6 +145,7 @@ export default function Home() {
             <span className="search-glyph" aria-hidden="true" />
             <input
               id="sat-search"
+              ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="名称或 NORAD ID"
@@ -163,7 +188,10 @@ export default function Home() {
             <div className="card-heading">
               <span className="tracking-pulse" />
               <div><small>正在跟踪</small><h2>{selected.name}</h2></div>
-              <span className="norad">#{selected.norad}</span>
+              <div className="card-actions">
+                <span className="norad">#{selected.norad}</span>
+                <button type="button" onClick={() => sceneApi?.clear()} aria-label="取消追踪">×</button>
+              </div>
             </div>
             <div className="telemetry-grid">
               <div><small>高度</small><strong>{Math.round(selected.altitude).toLocaleString()}<span> km</span></strong></div>
@@ -172,7 +200,7 @@ export default function Home() {
               <div><small>经度</small><strong>{Math.abs(selected.longitude).toFixed(2)}°<span> {selected.longitude >= 0 ? "E" : "W"}</span></strong></div>
             </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
-            <p className="card-hint">白色轨迹为未来一周轨道，地表光圈为当前视场范围。</p>
+            <p className="card-hint">白色轨迹为未来一个轨道周期，地表光圈为当前视场范围。</p>
           </>
         ) : (
           <div className="empty-selection"><span className="reticle" /><p>选择一个卫星光点<br /><small>查看实时遥测与轨道路径</small></p></div>
@@ -184,8 +212,8 @@ export default function Home() {
           <span className={playing ? "pause-icon" : "play-icon"} />
         </button>
         <div className="timeline-main">
-          <div className="timeline-labels"><span>模拟时间</span><strong>{formatClock(clock)} <small>LOCAL</small></strong></div>
-          <div className="track"><i style={{ width: `${28 + ((clock.getSeconds() / 60) * 58)}%` }} /><b /></div>
+          <div className="timeline-labels"><span>模拟时间</span><strong>{clock ? formatClock(clock) : "--:--:--"} <small>LOCAL</small></strong></div>
+          <div className="track"><i style={{ width: `${timelineProgress}%` }} /><b style={{ left: `${timelineProgress}%` }} /></div>
         </div>
         <div className="speed-control">
           {[1, 10, 60].map((value) => (

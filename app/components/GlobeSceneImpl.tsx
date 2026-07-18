@@ -26,7 +26,8 @@ export type GlobeSceneProps = {
   onReady: (satellites: SatelliteMeta[]) => void;
   onSelect: (satellite: SatelliteSnapshot | null) => void;
   onStatus: (status: string) => void;
-  onApi: (api: { focus: (index: number) => void }) => void;
+  onTime: (time: number) => void;
+  onApi: (api: { focus: (index: number) => void; clear: () => void }) => void;
 };
 
 const GROUP_COLORS: Record<string, THREE.Color> = {
@@ -158,9 +159,9 @@ function createStars() {
   );
 }
 
-async function addCoastlines(scene: THREE.Scene) {
+async function addCoastlines(scene: THREE.Scene, signal: AbortSignal) {
   try {
-    const response = await fetch("/ne_110m_land.json");
+    const response = await fetch("/ne_110m_land.json", { signal });
     const geojson = await response.json();
     const positions: number[] = [];
     const addRing = (ring: number[][]) => {
@@ -180,6 +181,7 @@ async function addCoastlines(scene: THREE.Scene) {
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    if (signal.aborted) return;
     scene.add(new THREE.LineSegments(
       geometry,
       new THREE.LineBasicMaterial({ color: 0x63b5ba, transparent: true, opacity: 0.5, depthWrite: false }),
@@ -189,7 +191,7 @@ async function addCoastlines(scene: THREE.Scene) {
   }
 }
 
-export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, onStatus, onApi }: GlobeSceneProps) {
+export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, onStatus, onTime, onApi }: GlobeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeGroupsRef = useRef(activeGroups);
   const speedRef = useRef(speed);
@@ -220,7 +222,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     scene.add(createStars());
     scene.add(createEarth());
     scene.add(createGraticule());
-    void addCoastlines(scene);
+    const abortController = new AbortController();
+    void addCoastlines(scene, abortController.signal);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -230,6 +233,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     controls.maxDistance = 6.5;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.22;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    controls.autoRotate = !reducedMotion.matches;
 
     const pointTexture = makePointTexture();
     const pointsGeometry = new THREE.BufferGeometry();
@@ -289,6 +294,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let lastRealTime = performance.now();
     let focusTarget: THREE.Vector3 | null = null;
     let updateTimer = 0;
+    let frameRequestedAt = 0;
+    let dataSource: "live" | "snapshot" = "live";
 
     const applyColors = () => {
       if (!satellites.length) return;
@@ -358,7 +365,15 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       focusTarget = position.clone().normalize().multiplyScalar(2.7);
       worker.postMessage({ type: "orbit", index, time: simulationTime });
     };
-    onApi({ focus });
+    const clear = () => {
+      selectedIndex = -1;
+      marker.visible = false;
+      orbitLine.visible = false;
+      coverageLine.visible = false;
+      focusTarget = null;
+      onSelect(null);
+    };
+    onApi({ focus, clear });
 
     const requestFrame = () => {
       if (disposed || !satellites.length) return;
@@ -366,8 +381,11 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       if (playingRef.current) simulationTime += (realNow - lastRealTime) * speedRef.current;
       lastRealTime = realNow;
       const duration = Math.max(350, 1000 / Math.sqrt(speedRef.current));
-      worker.postMessage({ type: "frame", time: simulationTime, nextTime: simulationTime + duration * speedRef.current });
-      updateTimer = window.setTimeout(requestFrame, duration);
+      const nextTime = playingRef.current
+        ? simulationTime + duration * speedRef.current
+        : simulationTime;
+      frameRequestedAt = performance.now();
+      worker.postMessage({ type: "frame", time: simulationTime, nextTime });
     };
 
     worker.onmessage = (event: MessageEvent) => {
@@ -376,7 +394,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         satellites = message.satellites;
         onReady(satellites);
         applyColors();
-        onStatus(`LIVE · ${satellites.length.toLocaleString("zh-CN")} 颗目标`);
+        onStatus(`${dataSource === "live" ? "LIVE" : "SNAPSHOT"} · ${satellites.length.toLocaleString("zh-CN")} 颗目标`);
         requestFrame();
       } else if (message.type === "frame") {
         nowPositions = message.now;
@@ -389,6 +407,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
           pointsGeometry.setAttribute("position", new THREE.BufferAttribute(renderedPositions, 3));
         }
         if (selectedIndex >= 0) emitSelection(selectedIndex);
+        onTime(message.time);
+        const interval = Math.max(350, 1000 / Math.sqrt(speedRef.current));
+        const delay = Math.max(0, interval - (performance.now() - frameRequestedAt));
+        updateTimer = window.setTimeout(requestFrame, delay);
       } else if (message.type === "orbit" && message.index === selectedIndex) {
         orbitGeometry.setAttribute("position", new THREE.BufferAttribute(message.points, 3));
         orbitLine.visible = true;
@@ -399,30 +421,58 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       try {
         const response = await fetch(`/api/tle?group=${group}`);
         if (!response.ok) throw new Error("live unavailable");
-        return { group, text: await response.text() };
+        const live = response.headers.get("x-orbital-source") === "celestrak-live";
+        return { group, text: await response.text(), live };
       } catch {
         const response = await fetch(`/tle/${group}.tle`);
-        return { group, text: await response.text() };
+        if (!response.ok) throw new Error(`snapshot unavailable: ${group}`);
+        return { group, text: await response.text(), live: false };
       }
     })).then((groups) => {
+      dataSource = groups.every((group) => group.live) ? "live" : "snapshot";
       if (!disposed) worker.postMessage({ type: "load", groups });
-    }).catch(() => onStatus("轨道数据暂不可用"));
+    }).catch(() => {
+      if (!disposed) onStatus("轨道数据暂不可用");
+    });
 
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points!.threshold = 0.025;
     const pointer = new THREE.Vector2();
+    const pointerStart = new THREE.Vector2();
+    const projected = new THREE.Vector3();
+    const worldPosition = new THREE.Vector3();
+    const earth = new THREE.Sphere(new THREE.Vector3(), 1);
+    const sightLine = new THREE.Ray();
     const onPointerDown = (event: PointerEvent) => {
+      pointerStart.set(event.clientX, event.clientY);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (!renderedPositions || pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 6) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObject(points, false).find((intersection) => {
-        const index = intersection.index ?? -1;
-        return index >= 0 && activeGroupsRef.current.has(satellites[index]?.group);
+      pointer.set(event.clientX - rect.left, event.clientY - rect.top);
+      let closestIndex = -1;
+      let closestDistance = 18;
+
+      satellites.forEach((satellite, index) => {
+        if (!activeGroupsRef.current.has(satellite.group)) return;
+        worldPosition.fromArray(renderedPositions!, index * 3);
+        sightLine.set(camera.position, worldPosition.clone().sub(camera.position).normalize());
+        const obstruction = sightLine.intersectSphere(earth, projected);
+        if (obstruction && camera.position.distanceTo(obstruction) < camera.position.distanceTo(worldPosition) - 0.01) return;
+
+        projected.copy(worldPosition).project(camera);
+        if (projected.z < -1 || projected.z > 1) return;
+        const screenX = ((projected.x + 1) / 2) * rect.width;
+        const screenY = ((1 - projected.y) / 2) * rect.height;
+        const distance = pointer.distanceTo(new THREE.Vector2(screenX, screenY));
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
       });
-      if (hit?.index !== undefined) focus(hit.index);
+
+      if (closestIndex >= 0) focus(closestIndex);
     };
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointerup", onPointerUp);
 
     const resize = () => {
       if (!container) return;
@@ -457,18 +507,28 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
 
     return () => {
       disposed = true;
+      abortController.abort();
       window.clearTimeout(updateTimer);
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", resize);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
       controls.dispose();
       worker.terminate();
+      scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose();
+        const materials = mesh.material
+          ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material])
+          : [];
+        materials.forEach((material) => material.dispose());
+      });
       renderer.dispose();
       pointTexture.dispose();
       renderer.domElement.remove();
       recolorRef.current = null;
     };
-  }, [onApi, onReady, onSelect, onStatus]);
+  }, [onApi, onReady, onSelect, onStatus, onTime]);
 
   return <div ref={containerRef} className="globe-scene" aria-label="可交互的三维地球卫星轨迹" />;
 }
