@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { feature, mesh } from "topojson-client";
+import countriesAtlas from "world-atlas/countries-110m.json";
 
 export type SatelliteMeta = {
   index: number;
@@ -36,6 +38,18 @@ const GROUP_COLORS: Record<string, THREE.Color> = {
   stations: new THREE.Color("#ff7f66"),
 };
 
+const CITY_LIGHTS = [
+  [116.4, 39.9], [121.5, 31.2], [113.3, 23.1], [114.1, 22.5], [104.1, 30.7], [106.6, 29.6],
+  [139.7, 35.7], [135.5, 34.7], [126.98, 37.6], [103.8, 1.35], [100.5, 13.75], [106.8, -6.2],
+  [72.9, 19.1], [77.2, 28.6], [77.6, 13], [67, 24.9], [55.3, 25.2], [51.4, 35.7],
+  [37.6, 55.8], [30.3, 59.9], [28.98, 41], [2.35, 48.86], [-0.13, 51.5], [4.9, 52.37],
+  [13.4, 52.52], [12.5, 41.9], [-3.7, 40.4], [18.1, 59.3], [19.04, 47.5], [30.5, 50.45],
+  [-74, 40.7], [-87.6, 41.9], [-118.25, 34.05], [-122.4, 37.8], [-79.4, 43.7], [-99.1, 19.4],
+  [-46.6, -23.55], [-43.2, -22.9], [-58.4, -34.6], [-77, -12], [-74.1, 4.7], [-70.7, -33.45],
+  [31.2, 30.05], [28.05, -26.2], [36.8, -1.3], [3.4, 6.5], [15.3, -4.3], [38.75, 9],
+  [151.2, -33.9], [144.96, -37.8], [174.8, -36.85],
+] as const;
+
 function lonLatToVector(lon: number, lat: number, radius = 1) {
   const longitude = THREE.MathUtils.degToRad(lon);
   const latitude = THREE.MathUtils.degToRad(lat);
@@ -64,17 +78,92 @@ function makePointTexture() {
   return texture;
 }
 
+function createEarthTextures() {
+  const width = 2048;
+  const height = 1024;
+  const landCanvas = document.createElement("canvas");
+  landCanvas.width = width;
+  landCanvas.height = height;
+  const context = landCanvas.getContext("2d")!;
+  const countries = feature(
+    countriesAtlas as never,
+    (countriesAtlas as unknown as { objects: { countries: never } }).objects.countries,
+  ) as unknown as { features: Array<{ geometry: { type: string; coordinates: unknown } }> };
+  const drawRing = (ring: number[][]) => {
+    ring.forEach(([longitude, latitude], index) => {
+      const x = ((longitude + 180) / 360) * width;
+      const y = ((90 - latitude) / 180) * height;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.closePath();
+  };
+  context.fillStyle = "#ffffff";
+  countries.features.forEach(({ geometry }) => {
+    context.beginPath();
+    if (geometry.type === "Polygon") {
+      (geometry.coordinates as number[][][]).forEach(drawRing);
+    } else if (geometry.type === "MultiPolygon") {
+      (geometry.coordinates as number[][][][]).forEach((polygon) => polygon.forEach(drawRing));
+    }
+    context.fill("evenodd");
+  });
+
+  const lightsCanvas = document.createElement("canvas");
+  lightsCanvas.width = width;
+  lightsCanvas.height = height;
+  const lights = lightsCanvas.getContext("2d")!;
+  CITY_LIGHTS.forEach(([longitude, latitude], cityIndex) => {
+    const x = ((longitude + 180) / 360) * width;
+    const y = ((90 - latitude) / 180) * height;
+    const radius = cityIndex < 18 ? 10 : 7;
+    const gradient = lights.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, "rgba(255,238,174,1)");
+    gradient.addColorStop(0.18, "rgba(255,190,88,.8)");
+    gradient.addColorStop(1, "rgba(255,150,38,0)");
+    lights.fillStyle = gradient;
+    lights.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  });
+
+  const landMap = new THREE.CanvasTexture(landCanvas);
+  const lightsMap = new THREE.CanvasTexture(lightsCanvas);
+  landMap.colorSpace = THREE.NoColorSpace;
+  lightsMap.colorSpace = THREE.SRGBColorSpace;
+  return { landMap, lightsMap };
+}
+
+function sunDirection(date: Date) {
+  const julianDate = date.getTime() / 86400000 + 2440587.5;
+  const days = julianDate - 2451545;
+  const meanLongitude = THREE.MathUtils.degToRad((280.46 + 0.9856474 * days) % 360);
+  const anomaly = THREE.MathUtils.degToRad((357.528 + 0.9856003 * days) % 360);
+  const eclipticLongitude = meanLongitude
+    + THREE.MathUtils.degToRad(1.915) * Math.sin(anomaly)
+    + THREE.MathUtils.degToRad(0.02) * Math.sin(2 * anomaly);
+  const obliquity = THREE.MathUtils.degToRad(23.439 - 0.0000004 * days);
+  const rightAscension = Math.atan2(Math.cos(obliquity) * Math.sin(eclipticLongitude), Math.cos(eclipticLongitude));
+  const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLongitude));
+  const sidereal = THREE.MathUtils.degToRad((280.46061837 + 360.98564736629 * days) % 360);
+  const longitude = THREE.MathUtils.radToDeg(rightAscension - sidereal);
+  return lonLatToVector(longitude, THREE.MathUtils.radToDeg(declination)).normalize();
+}
+
 function createEarth() {
   const group = new THREE.Group();
   const geometry = new THREE.SphereGeometry(1, 96, 64);
+  const { landMap, lightsMap } = createEarthTextures();
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      lightDirection: { value: new THREE.Vector3(-1.4, 0.35, 1).normalize() },
+      lightDirection: { value: sunDirection(new Date()) },
+      landMap: { value: landMap },
+      lightsMap: { value: lightsMap },
     },
     vertexShader: `
       varying vec3 vNormalWorld;
       varying vec3 vPositionWorld;
+      varying vec2 vUv;
       void main() {
+        vUv = uv;
         vNormalWorld = normalize(mat3(modelMatrix) * normal);
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vPositionWorld = worldPosition.xyz;
@@ -83,15 +172,27 @@ function createEarth() {
     `,
     fragmentShader: `
       uniform vec3 lightDirection;
+      uniform sampler2D landMap;
+      uniform sampler2D lightsMap;
       varying vec3 vNormalWorld;
       varying vec3 vPositionWorld;
+      varying vec2 vUv;
       void main() {
-        float daylight = smoothstep(-0.18, 0.62, dot(normalize(vNormalWorld), lightDirection));
+        float solar = dot(normalize(vNormalWorld), lightDirection);
+        float daylight = smoothstep(-0.12, 0.18, solar);
+        float land = texture2D(landMap, vUv).r;
+        vec3 cityLights = texture2D(lightsMap, vUv).rgb;
         float polar = pow(abs(vNormalWorld.y), 3.0);
-        vec3 night = vec3(0.006, 0.026, 0.045);
-        vec3 day = vec3(0.018, 0.105, 0.155);
-        vec3 ice = vec3(0.24, 0.48, 0.54) * polar * daylight * 0.42;
+        vec3 oceanNight = vec3(0.003, 0.012, 0.025);
+        vec3 oceanDay = vec3(0.012, 0.105, 0.19);
+        vec3 landNight = vec3(0.008, 0.021, 0.024);
+        vec3 landDay = vec3(0.075, 0.23, 0.19);
+        vec3 night = mix(oceanNight, landNight, land);
+        vec3 day = mix(oceanDay, landDay, land);
+        vec3 ice = vec3(0.48, 0.68, 0.7) * polar * land * daylight * 0.48;
         vec3 color = mix(night, day, daylight) + ice;
+        color += cityLights * (1.0 - smoothstep(-0.28, 0.02, solar)) * 2.3;
+        color += vec3(0.05, 0.19, 0.2) * exp(-pow(solar / 0.075, 2.0)) * 0.35;
         float rim = pow(1.0 - max(dot(normalize(vNormalWorld), normalize(cameraPosition - vPositionWorld)), 0.0), 3.0);
         color += vec3(0.02, 0.18, 0.23) * rim;
         gl_FragColor = vec4(color, 1.0);
@@ -112,7 +213,7 @@ function createEarth() {
     }),
   );
   group.add(atmosphere);
-  return group;
+  return { group, material, textures: [landMap, lightsMap] };
 }
 
 function createGraticule() {
@@ -191,6 +292,28 @@ async function addCoastlines(scene: THREE.Scene, signal: AbortSignal) {
   }
 }
 
+function createCountryBoundaries() {
+  const topology = countriesAtlas as unknown as { objects: { countries: never } };
+  const boundaries = mesh(countriesAtlas as never, topology.objects.countries, (a, b) => a !== b) as unknown as {
+    coordinates: number[][][];
+  };
+  const positions: number[] = [];
+  boundaries.coordinates.forEach((line) => {
+    for (let index = 1; index < line.length; index += 1) {
+      positions.push(
+        ...lonLatToVector(line[index - 1][0], line[index - 1][1], 1.007).toArray(),
+        ...lonLatToVector(line[index][0], line[index][1], 1.007).toArray(),
+      );
+    }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  return new THREE.LineSegments(
+    geometry,
+    new THREE.LineBasicMaterial({ color: 0x86d5d0, transparent: true, opacity: 0.34, depthWrite: false }),
+  );
+}
+
 export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, onStatus, onTime, onApi }: GlobeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeGroupsRef = useRef(activeGroups);
@@ -220,8 +343,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     container.appendChild(renderer.domElement);
 
     scene.add(createStars());
-    scene.add(createEarth());
+    const earth = createEarth();
+    scene.add(earth.group);
     scene.add(createGraticule());
+    scene.add(createCountryBoundaries());
     const abortController = new AbortController();
     void addCoastlines(scene, abortController.signal);
 
@@ -400,6 +525,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         nowPositions = message.now;
         nextPositions = message.next;
         telemetry = message.telemetry;
+        earth.material.uniforms.lightDirection.value.copy(sunDirection(new Date(message.time)));
         frameStart = performance.now();
         frameDuration = Math.max(250, message.nextTime - message.time) / Math.max(speedRef.current, 1);
         if (!renderedPositions || renderedPositions.length !== nowPositions!.length) {
@@ -439,7 +565,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     const pointerStart = new THREE.Vector2();
     const projected = new THREE.Vector3();
     const worldPosition = new THREE.Vector3();
-    const earth = new THREE.Sphere(new THREE.Vector3(), 1);
+    const earthBounds = new THREE.Sphere(new THREE.Vector3(), 1);
     const sightLine = new THREE.Ray();
     const onPointerDown = (event: PointerEvent) => {
       pointerStart.set(event.clientX, event.clientY);
@@ -455,7 +581,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         if (!activeGroupsRef.current.has(satellite.group)) return;
         worldPosition.fromArray(renderedPositions!, index * 3);
         sightLine.set(camera.position, worldPosition.clone().sub(camera.position).normalize());
-        const obstruction = sightLine.intersectSphere(earth, projected);
+        const obstruction = sightLine.intersectSphere(earthBounds, projected);
         if (obstruction && camera.position.distanceTo(obstruction) < camera.position.distanceTo(worldPosition) - 0.01) return;
 
         projected.copy(worldPosition).project(camera);
@@ -523,6 +649,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
           : [];
         materials.forEach((material) => material.dispose());
       });
+      earth.textures.forEach((texture) => texture.dispose());
       renderer.dispose();
       pointTexture.dispose();
       renderer.domElement.remove();
