@@ -386,6 +386,9 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let renderedPositions: Float32Array | null = null;
     let telemetry: Float32Array | null = null;
     let selectedIndex = -1;
+    let cameraBeforeFocus: THREE.Vector3 | null = null;
+    let targetBeforeFocus: THREE.Vector3 | null = null;
+    let autoRotateBeforeFocus = controls.autoRotate;
     let frameStart = performance.now();
     let frameDuration = 1000;
     let disposed = false;
@@ -451,6 +454,9 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     const focus = (index: number) => {
       if (!satellites[index] || !renderedPositions) return;
       if (selectedIndex >= 0) return;
+      cameraBeforeFocus = camera.position.clone();
+      targetBeforeFocus = controls.target.clone();
+      autoRotateBeforeFocus = controls.autoRotate;
       selectedIndex = index;
       controls.autoRotate = false;
       marker.visible = true;
@@ -470,7 +476,15 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       marker.visible = false;
       orbitLine.visible = false;
       coverageLine.visible = false;
-      focusTarget = null;
+      if (cameraBeforeFocus && targetBeforeFocus) {
+        controls.target.copy(targetBeforeFocus);
+        focusTarget = cameraBeforeFocus.clone();
+      } else {
+        focusTarget = null;
+      }
+      controls.autoRotate = autoRotateBeforeFocus;
+      cameraBeforeFocus = null;
+      targetBeforeFocus = null;
       onSelect(null);
     };
     const resetTime = () => {
