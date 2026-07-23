@@ -198,12 +198,57 @@ GlobeSceneImpl / Three.js 渲染
 
 ### Cloudflare Workers 独立部署
 
+本项目不是 GitHub Pages 纯静态站，推荐用 Cloudflare Workers 部署，因为运行时需要处理 `/api/tle` 动态接口，并托管 vinext 生成的 Worker + 静态资源。
+
+首次部署：
+
 ```bash
+# 1. 登录 Cloudflare，浏览器会打开授权页
 npx wrangler login
-npm run build
+
+# 2. 确认当前登录账号
+npx wrangler whoami
+
+# 3. 本地质量检查
+npm run lint
+npm test
+
+# 4. 可选：只构建并验证部署包，不真正发布
+npm run deploy:cloudflare:dry-run
+
+# 5. 发布到 Cloudflare Workers
+npm run deploy:cloudflare
 ```
 
-部署前检查 `dist/server/wrangler.json` 中的 Worker 名称、路由、账号和 Image 绑定。Cloudflare 凭据、账号 ID、路由配置不写入仓库。
+后续修改代码后的部署流程：
+
+```bash
+# 修改代码后
+npm run lint
+npm test
+npm run deploy:cloudflare
+```
+
+部署成功后，Wrangler 会在终端输出 `https://<worker-name>.<subdomain>.workers.dev` 形式的公开访问地址。
+
+如果首次部署时看到 `You need to register a workers.dev subdomain before publishing to workers.dev`，说明当前 Cloudflare 账号还没有设置 Workers 子域名。处理方式：
+
+1. 打开 Wrangler 输出的 onboarding 链接，或进入 Cloudflare Dashboard → Workers & Pages；
+2. 注册一个 `workers.dev` 子域名，例如 `<your-name>.workers.dev`；
+3. 回到项目目录重新执行 `npm run deploy:cloudflare`。
+
+也可以跳过 `workers.dev`，直接在 Cloudflare Worker 的 Settings → Domains & Routes 中绑定自己的域名。
+
+当前构建会生成 `dist/server/wrangler.json`，其中包含 Worker 入口 `dist/server/index.js` 以及静态资源目录 `dist/client`。不要手写上传 `dist/client` 到 GitHub Pages；那不是完整产物。
+
+如果要绑定自定义域名，请在 Cloudflare Dashboard 中进入对应 Worker：
+
+1. Workers & Pages → 选择 `orbital-live` Worker；
+2. Settings → Domains & Routes；
+3. 添加你的域名或 route；
+4. 重新执行 `npm run deploy:cloudflare`。
+
+Cloudflare 凭据、账号 ID、路由配置不写入仓库。
 
 ## 视觉规范
 
@@ -222,3 +267,4 @@ The app supports Starlink, operational GPS satellites, and space stations. It in
 ## License
 
 No license file is currently included. Add a `LICENSE` file before distributing this repository as open source.
+

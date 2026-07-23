@@ -1,4 +1,14 @@
-const ALLOWED_GROUPS = new Set(["starlink", "gps-ops", "stations"]);
+﻿import gpsOpsSnapshot from "../../../public/tle/gps-ops.tle?raw";
+import starlinkSnapshot from "../../../public/tle/starlink.tle?raw";
+import stationsSnapshot from "../../../public/tle/stations.tle?raw";
+
+const SNAPSHOTS: Record<string, string> = {
+  "gps-ops": gpsOpsSnapshot,
+  starlink: starlinkSnapshot,
+  stations: stationsSnapshot,
+};
+
+const ALLOWED_GROUPS = new Set(Object.keys(SNAPSHOTS));
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -23,8 +33,7 @@ export async function GET(request: Request) {
       },
     });
   } catch {
-    const fallback = await fetch(new URL(`/tle/${group}.tle`, request.url));
-    return new Response(await fallback.text(), {
+    return new Response(SNAPSHOTS[group], {
       headers: {
         "content-type": "text/plain; charset=utf-8",
         "cache-control": "public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400",

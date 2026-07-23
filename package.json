@@ -1,5 +1,5 @@
 {
-    "name": "site-creator-vinext-starter",
+    "name": "orbital-live",
     "version": "0.1.0",
     "private": true,
     "engines": {
@@ -11,7 +11,10 @@
         "start": "vinext start",
         "test": "npm run build && node --test tests/rendered-html.test.mjs",
         "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-        "db:generate": "drizzle-kit generate"
+        "db:generate": "drizzle-kit generate",
+        "deploy:cloudflare": "npm run build && wrangler deploy --config dist/server/wrangler.json",
+        "deploy:cloudflare:dry-run": "npm run build && wrangler deploy --config dist/server/wrangler.json --dry-run",
+        "preview:cloudflare": "npm run build && wrangler dev --config dist/server/wrangler.json"
     },
     "dependencies": {
         "@fontsource/ibm-plex-mono": "^5.2.7",
