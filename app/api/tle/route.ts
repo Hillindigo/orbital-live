@@ -19,9 +19,18 @@ export async function GET(request: Request) {
         "content-type": "text/plain; charset=utf-8",
         "cache-control": "public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400",
         "x-orbital-source": "celestrak-live",
+        "x-orbital-fetched-at": new Date().toISOString(),
       },
     });
   } catch {
-    return Response.redirect(new URL(`/tle/${group}.tle`, request.url), 307);
+    const fallback = await fetch(new URL(`/tle/${group}.tle`, request.url));
+    return new Response(await fallback.text(), {
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400",
+        "x-orbital-source": "bundled-snapshot",
+        "x-orbital-fetched-at": new Date().toISOString(),
+      },
+    });
   }
 }

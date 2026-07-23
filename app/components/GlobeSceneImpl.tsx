@@ -15,6 +15,7 @@ export type SatelliteMeta = {
   country: string;
   operator: string;
   launchYear: number | null;
+  epochTime: number | null;
 };
 
 export type SatelliteSnapshot = SatelliteMeta & {
@@ -311,7 +312,13 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     scene.fog = new THREE.FogExp2(0x02080c, 0.025);
     const camera = new THREE.PerspectiveCamera(38, container.clientWidth / container.clientHeight, 0.01, 50);
     camera.position.set(0.3, 0.25, 3.2);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    } catch {
+      onStatus("WebGL 不可用 · 请开启硬件加速");
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -402,6 +409,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let updateTimer = 0;
     let frameRequestedAt = 0;
     let dataSource: "live" | "snapshot" = "live";
+    let dataFetchedAt: string | null = null;
 
     const applyColors = () => {
       if (!satellites.length) return;
@@ -526,7 +534,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         satellites = message.satellites;
         onReady(satellites);
         applyColors();
-        onStatus(`${dataSource === "live" ? "LIVE" : "SNAPSHOT"} · ${satellites.length.toLocaleString("zh-CN")} 颗目标`);
+        const fetchedLabel = dataFetchedAt
+          ? ` · ${new Date(dataFetchedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+          : "";
+        onStatus(`${dataSource === "live" ? "LIVE" : "SNAPSHOT"} · ${satellites.length.toLocaleString("zh-CN")} 颗目标${fetchedLabel}`);
         requestFrame();
       } else if (message.type === "frame") {
         nowPositions = message.now;
@@ -560,14 +571,25 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         const response = await fetch(`/api/tle?group=${group}`);
         if (!response.ok) throw new Error("live unavailable");
         const live = response.headers.get("x-orbital-source") === "celestrak-live";
-        return { group, text: await response.text(), live };
+        return {
+          group,
+          text: await response.text(),
+          live,
+          fetchedAt: response.headers.get("x-orbital-fetched-at"),
+        };
       } catch {
         const response = await fetch(`/tle/${group}.tle`);
         if (!response.ok) throw new Error(`snapshot unavailable: ${group}`);
-        return { group, text: await response.text(), live: false };
+        return {
+          group,
+          text: await response.text(),
+          live: false,
+          fetchedAt: response.headers.get("x-orbital-fetched-at"),
+        };
       }
     })).then((groups) => {
       dataSource = groups.every((group) => group.live) ? "live" : "snapshot";
+      dataFetchedAt = groups.map((group) => group.fetchedAt).find(Boolean) ?? null;
       if (!disposed) worker.postMessage({ type: "load", groups });
     }).catch(() => {
       if (!disposed) onStatus("轨道数据暂不可用");

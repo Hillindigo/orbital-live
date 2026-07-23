@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function loadWorker() {
@@ -62,4 +63,23 @@ test("rejects unsupported TLE groups before contacting CelesTrak", async () => {
 
   assert.equal(response.status, 400);
   assert.equal(await response.text(), "Unsupported group");
+});
+
+test("keeps orbit metadata and fallback behavior explicit", async () => {
+  const [worker, route, scene, page] = await Promise.all([
+    readFile(new URL("../app/workers/orbit.worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/tle/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/GlobeSceneImpl.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(worker, /getEpochTime/);
+  assert.match(worker, /epochTime: record\.epochTime/);
+  assert.match(worker, /getOwnership/);
+  assert.match(route, /x-orbital-source/);
+  assert.match(route, /x-orbital-fetched-at/);
+  assert.match(route, /bundled-snapshot/);
+  assert.match(scene, /WebGL 不可用/);
+  assert.match(page, /event\.key === "r"/);
+  assert.match(page, /TLE 历元/);
 });

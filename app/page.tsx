@@ -46,6 +46,23 @@ export default function Home() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const handleGlobalKeys = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (event.key === " ") {
+        event.preventDefault();
+        setPlaying((value) => !value);
+      } else if (event.key === "r" || event.key === "R") {
+        sceneApi?.resetTime();
+      } else if (["1", "2", "3"].includes(event.key)) {
+        setSpeed(Number(event.key === "1" ? 1 : event.key === "2" ? 10 : 60));
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeys);
+    return () => window.removeEventListener("keydown", handleGlobalKeys);
+  }, [sceneApi]);
+
+  useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -204,6 +221,7 @@ export default function Home() {
               <div><small>归属国家/地区</small><strong>{selected.country}</strong></div>
               <div><small>运营方</small><strong>{selected.operator}</strong></div>
               <div><small>发射年份</small><strong>{selected.launchYear ?? "未知"}</strong></div>
+              <div><small>TLE 历元</small><strong>{selected.epochTime ? new Date(selected.epochTime).toLocaleString("zh-CN") : "未知"}</strong></div>
             </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
             <p className="card-hint">简介来自 TLE 国际标识符与公开星座分类；白色轨迹为未来一个轨道周期。取消追踪后才能选择其他卫星。</p>
@@ -214,7 +232,7 @@ export default function Home() {
       </section>
 
       <section className="timeline glass-panel" aria-label="时间控制">
-        <button className="play-button" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "暂停" : "播放"}>
+        <button className="play-button" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "暂停模拟时间（空格）" : "播放模拟时间（空格）"}>
           <span className={playing ? "pause-icon" : "play-icon"} />
         </button>
         <div className="timeline-main">
@@ -222,7 +240,7 @@ export default function Home() {
           <div className="track"><i style={{ width: `${timelineProgress}%` }} /><b style={{ left: `${timelineProgress}%` }} /></div>
         </div>
         <div className="speed-control">
-          <button className="now-button" onClick={() => sceneApi?.resetTime()}>现在</button>
+          <button className="now-button" onClick={() => sceneApi?.resetTime()} title="回到当前时间（R）">现在</button>
           {[1, 10, 60].map((value) => (
             <button key={value} className={speed === value ? "active" : ""} onClick={() => setSpeed(value)}>{value}×</button>
           ))}

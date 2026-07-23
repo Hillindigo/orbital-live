@@ -21,6 +21,7 @@ type OrbitRecord = {
   country: string;
   operator: string;
   launchYear: number | null;
+  epochTime: number | null;
 };
 
 let records: OrbitRecord[] = [];
@@ -46,6 +47,15 @@ function getLaunchYear(line1: string) {
   return launchYear >= 57 ? 1900 + launchYear : 2000 + launchYear;
 }
 
+function getEpochTime(line1: string) {
+  const epoch = line1.slice(18, 32).trim();
+  const year = Number.parseInt(epoch.slice(0, 2), 10);
+  const day = Number.parseFloat(epoch.slice(2));
+  if (!Number.isInteger(year) || !Number.isFinite(day)) return null;
+  const fullYear = year >= 57 ? 1900 + year : 2000 + year;
+  return Date.UTC(fullYear, 0, 1) + (day - 1) * 86400000;
+}
+
 function parseTle(text: string, group: string): OrbitRecord[] {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const output: OrbitRecord[] = [];
@@ -65,6 +75,7 @@ function parseTle(text: string, group: string): OrbitRecord[] {
       period: meanMotion > 0 ? 1440 / meanMotion : 0,
       ...ownership,
       launchYear: getLaunchYear(line1),
+      epochTime: getEpochTime(line1),
     });
   }
   return output;
@@ -159,6 +170,7 @@ self.onmessage = (event: MessageEvent) => {
         country: record.country,
         operator: record.operator,
         launchYear: record.launchYear,
+        epochTime: record.epochTime,
       })),
     });
   } else if (message.type === "frame") {
