@@ -6,11 +6,11 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=06131f)](https://react.dev/)
 [![Three.js](https://img.shields.io/badge/Three.js-WebGL-000000?logo=three.js&logoColor=white)](https://threejs.org/)
 [![SGP4](https://img.shields.io/badge/Orbit-SGP4-70e8f0)](https://github.com/shashwatak/satellite-js)
-[![Deployment](https://img.shields.io/badge/Deploy-OpenAI%20Sites%20%2F%20Cloudflare-ff7f66)](https://orbital-live-earth.izhaankismet9932.chatgpt.site)
+[![Deployment](https://img.shields.io/badge/Deploy-OpenAI%20Sites%20%2F%20Cloudflare-ff7f66)](https://orbital-live.1hillindigo.workers.dev)
 
 > Navigate live orbital data on a WebGL Earth: CelesTrak TLE → satellite.js SGP4 propagation → Three.js globe rendering.
 
-[在线体验](https://orbital-live-earth.izhaankismet9932.chatgpt.site) · [功能特性](#功能特性) · [快速启动](#快速启动) · [数据流](#数据流) · [部署](#部署) · [English Summary](#english-summary)
+[在线体验](https://orbital-live.1hillindigo.workers.dev) · [功能特性](#功能特性) · [快速启动](#快速启动) · [数据流](#数据流) · [部署](#部署) · [English Summary](#english-summary)
 
 ---
 
@@ -193,7 +193,7 @@ GlobeSceneImpl / Three.js 渲染
 仓库已配置 OpenAI Sites：
 
 - Project ID: `appgprj_6a5b044b09848191a01efa48a29663d0`
-- 当前线上地址：[https://orbital-live-earth.izhaankismet9932.chatgpt.site](https://orbital-live-earth.izhaankismet9932.chatgpt.site)
+- 当前线上地址：[https://orbital-live.1hillindigo.workers.dev](https://orbital-live.1hillindigo.workers.dev)
 - 当前体验不依赖 D1 或 R2 绑定。
 
 ### Cloudflare Workers 独立部署
