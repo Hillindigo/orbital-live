@@ -111,6 +111,7 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(scene, /reload: \(\) =>/);
   assert.match(scene, /refresh=\$\{Date\.now\(\)\}/);
   assert.match(scene, /cache: forceRefresh \? "no-store" : "default"/);
+  assert.match(scene, /servedAt: servedAtValue \? Date\.parse\(servedAtValue\) : Date\.now\(\)/);
   assert.match(scene, /sizeAttenuation: false/);
   assert.match(scene, /points\.frustumCulled = false/);
   assert.match(scene, /makeSatelliteGlyphTexture/);
@@ -128,4 +129,6 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(page, /onDataStatus/);
   assert.match(page, /TLE 历元/);
   assert.match(page, /group-swatch \$\{group\.shape\}/);
+  assert.match(page, /formatRefreshAge/);
+  assert.match(page, /快照 TLE 历元/);
 });

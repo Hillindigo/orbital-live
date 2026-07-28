@@ -41,6 +41,16 @@ function formatDataAge(epoch?: number) {
   return `${Math.round(hours / 24)} 天前`;
 }
 
+function formatRefreshAge(servedAt?: number) {
+  if (!servedAt || !Number.isFinite(servedAt)) return "刷新时间未知";
+  const minutes = Math.max(0, Math.floor((Date.now() - servedAt) / 60_000));
+  if (minutes < 1) return "刚刚刷新";
+  if (minutes < 60) return `${minutes} 分钟前刷新`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前刷新`;
+  return `${Math.floor(hours / 24)} 天前刷新`;
+}
+
 export default function Home() {
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
     () => new Set(GROUPS.map((group) => group.id)),
@@ -288,11 +298,20 @@ export default function Home() {
                 : groupStatus?.source === "failed"
                   ? "FAILED"
                   : "LOADING";
+            const isSnapshot = groupStatus?.source === "snapshot";
+            const statusDetail = groupStatus?.source === "failed"
+              ? groupStatus.error
+              : isSnapshot
+                ? formatRefreshAge(groupStatus?.servedAt)
+                : formatDataAge(groupStatus?.tleEpoch);
+            const statusTitle = isSnapshot
+              ? `快照 TLE 历元：${formatDataAge(groupStatus?.tleEpoch)}；${formatRefreshAge(groupStatus?.servedAt)}`
+              : undefined;
             return (
               <div className={`data-health-row ${groupStatus?.source ?? "loading"}`} key={group.id}>
                 <span>{group.label}</span>
                 <strong>{label}</strong>
-                <small>{groupStatus?.source === "failed" ? groupStatus.error : formatDataAge(groupStatus?.tleEpoch)}</small>
+                <small title={statusTitle}>{statusDetail}</small>
               </div>
             );
           })}

@@ -30,6 +30,7 @@ export type OrbitGroupStatus = {
   source: "loading" | "live" | "snapshot" | "failed";
   recordCount?: number;
   tleEpoch?: number;
+  servedAt?: number;
   error?: string;
 };
 
@@ -61,6 +62,7 @@ type LoadedGroup = {
   source: "live" | "snapshot";
   recordCount: number;
   tleEpoch?: number;
+  servedAt: number;
 };
 
 function readTleMetadata(text: string) {
@@ -737,12 +739,14 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         const source = response.headers.get("x-orbital-source") === "celestrak-live" ? "live" : "snapshot";
         const recordCount = Number.parseInt(response.headers.get("x-orbital-record-count") ?? "", 10);
         const epochValue = response.headers.get("x-orbital-tle-epoch-max");
+        const servedAtValue = response.headers.get("x-orbital-served-at");
         return {
           group,
           text,
           source,
           recordCount: Number.isFinite(recordCount) ? recordCount : fallbackMetadata.recordCount,
           tleEpoch: epochValue ? Date.parse(epochValue) : fallbackMetadata.tleEpoch,
+          servedAt: servedAtValue ? Date.parse(servedAtValue) : Date.now(),
         };
       } catch {
         const response = await fetch(`/tle/${group}.tle`, { signal: dataAbortController.signal });
@@ -750,7 +754,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         const text = await response.text();
         const metadata = readTleMetadata(text);
         if (!metadata.recordCount) throw new Error("本地快照无有效轨道记录");
-        return { group, text, source: "snapshot", ...metadata };
+        return { group, text, source: "snapshot", ...metadata, servedAt: Date.now() };
       }
     };
 
@@ -771,6 +775,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
             source: result.value.source,
             recordCount: result.value.recordCount,
             tleEpoch: result.value.tleEpoch,
+            servedAt: result.value.servedAt,
           };
         }
         return {
