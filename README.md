@@ -84,14 +84,14 @@ npm install
 # 启动开发服务器
 npm run dev
 
-# 代码检查
-npm run lint
+# 完整质量门禁：lint + 类型检查 + 生产构建 + 回归测试
+npm run verify
 
-# 生产构建 + 测试
-npm test
+# 用与线上一致的 Cloudflare Worker 运行时本地预览
+npm run preview:cloudflare
 ```
 
-开发服务器启动后会在终端输出本地访问地址。
+开发服务器或 Cloudflare Worker 预览启动后会在终端输出本地访问地址。`preview:cloudflare` 会占用 `dist/` 目录；重新构建或发布前请先按 `Ctrl+C` 停止预览进程。
 
 ## 项目结构
 
@@ -210,8 +210,7 @@ npx wrangler login
 npx wrangler whoami
 
 # 3. 本地质量检查
-npm run lint
-npm test
+npm run verify
 
 # 4. 可选：只构建并验证部署包，不真正发布
 npm run deploy:cloudflare:dry-run
@@ -224,8 +223,16 @@ npm run deploy:cloudflare
 
 ```bash
 # 修改代码后
-npm run lint
-npm test
+npm run verify
+npm run deploy:cloudflare
+```
+
+推荐先用下列命令在与线上相同的 Worker + 静态资源运行时确认页面，再停止预览并发布：
+
+```bash
+npm run preview:cloudflare
+# 浏览器打开 Wrangler 输出的 localhost 地址
+# 确认后按 Ctrl+C 停止预览，避免锁住 dist/ 目录
 npm run deploy:cloudflare
 ```
 

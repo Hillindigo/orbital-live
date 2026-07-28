@@ -65,6 +65,29 @@ test("rejects unsupported TLE groups before contacting CelesTrak", async () => {
   assert.equal(await response.text(), "Unsupported group");
 });
 
+test("rejects an invalid upstream payload and exposes snapshot epoch metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("<html>upstream error page</html>", { status: 200 });
+
+  try {
+    const worker = await loadWorker();
+    const response = await worker.fetch(
+      new Request("http://localhost/api/tle?group=stations"),
+      environment(),
+      context,
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-orbital-source"), "bundled-snapshot");
+    assert.match(response.headers.get("x-orbital-tle-epoch-max") ?? "", /^20\d{2}-\d{2}-\d{2}T/);
+    assert.match(response.headers.get("x-orbital-record-count") ?? "", /^\d+$/);
+    assert.match(response.headers.get("x-orbital-served-at") ?? "", /^20\d{2}-\d{2}-\d{2}T/);
+    assert.doesNotMatch(await response.text(), /upstream error page/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps orbit metadata and fallback behavior explicit", async () => {
   const [worker, route, scene, page] = await Promise.all([
     readFile(new URL("../app/workers/orbit.worker.ts", import.meta.url), "utf8"),
@@ -77,9 +100,28 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(worker, /epochTime: record\.epochTime/);
   assert.match(worker, /getOwnership/);
   assert.match(route, /x-orbital-source/);
-  assert.match(route, /x-orbital-fetched-at/);
+  assert.match(route, /x-orbital-tle-epoch-max/);
+  assert.match(route, /x-orbital-served-at/);
   assert.match(route, /bundled-snapshot/);
+  assert.match(route, /AbortSignal\.timeout/);
+  assert.match(scene, /Promise\.allSettled/);
+  assert.match(scene, /source: "failed"/);
+  assert.match(scene, /reload: \(\) =>/);
+  assert.match(scene, /sizeAttenuation: false/);
+  assert.match(scene, /points\.frustumCulled = false/);
+  assert.match(scene, /makeSatelliteGlyphTexture/);
+  assert.match(scene, /GROUP_MARKERS/);
+  assert.match(scene, /shape: "diamond"/);
+  assert.match(scene, /shape: "station"/);
+  assert.match(scene, /size: 8/);
+  assert.match(scene, /const GPS_OVERVIEW_SCALE = 0\.48/);
+  assert.match(scene, /return group === "gps-ops" \? GPS_OVERVIEW_SCALE : 1/);
   assert.match(scene, /WebGL 不可用/);
   assert.match(page, /event\.key === "r"/);
+  assert.match(page, /type="range"/);
+  assert.match(page, /timeline-range/);
+  assert.match(page, /role="combobox"/);
+  assert.match(page, /onDataStatus/);
   assert.match(page, /TLE 历元/);
+  assert.match(page, /group-swatch \$\{group\.shape\}/);
 });

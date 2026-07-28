@@ -25,6 +25,22 @@ export type SatelliteSnapshot = SatelliteMeta & {
   velocity: number;
 };
 
+export type OrbitGroupStatus = {
+  group: string;
+  source: "loading" | "live" | "snapshot" | "failed";
+  recordCount?: number;
+  tleEpoch?: number;
+  error?: string;
+};
+
+export type GlobeSceneApi = {
+  focus: (index: number) => boolean;
+  clear: () => void;
+  resetTime: () => void;
+  setTime: (time: number) => void;
+  reload: () => void;
+};
+
 export type GlobeSceneProps = {
   activeGroups: Set<string>;
   speed: number;
@@ -32,15 +48,60 @@ export type GlobeSceneProps = {
   onReady: (satellites: SatelliteMeta[]) => void;
   onSelect: (satellite: SatelliteSnapshot | null) => void;
   onStatus: (status: string) => void;
+  onDataStatus: (statuses: OrbitGroupStatus[]) => void;
   onTime: (time: number) => void;
-  onApi: (api: { focus: (index: number) => boolean; clear: () => void; resetTime: () => void }) => void;
+  onApi: (api: GlobeSceneApi) => void;
 };
+
+const DATA_GROUPS = ["starlink", "gps-ops", "stations"];
+
+type LoadedGroup = {
+  group: string;
+  text: string;
+  source: "live" | "snapshot";
+  recordCount: number;
+  tleEpoch?: number;
+};
+
+function readTleMetadata(text: string) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const epochs: number[] = [];
+
+  for (let index = 0; index + 2 < lines.length; index += 3) {
+    const [, line1, line2] = lines.slice(index, index + 3);
+    if (!line1.startsWith("1 ") || !line2.startsWith("2 ")) continue;
+    const epoch = line1.slice(18, 32).trim();
+    const shortYear = Number.parseInt(epoch.slice(0, 2), 10);
+    const dayOfYear = Number.parseFloat(epoch.slice(2));
+    if (!Number.isInteger(shortYear) || !Number.isFinite(dayOfYear)) continue;
+    const year = shortYear >= 57 ? 1900 + shortYear : 2000 + shortYear;
+    epochs.push(Date.UTC(year, 0, 1) + (dayOfYear - 1) * 86_400_000);
+  }
+
+  return { recordCount: epochs.length, tleEpoch: epochs.length ? Math.max(...epochs) : undefined };
+}
 
 const GROUP_COLORS: Record<string, THREE.Color> = {
   starlink: new THREE.Color("#73e6ff"),
   "gps-ops": new THREE.Color("#ffd36a"),
   stations: new THREE.Color("#ff7f66"),
 };
+
+type SatelliteGlyph = "circle" | "diamond" | "station";
+
+const GROUP_MARKERS: Record<string, { shape: SatelliteGlyph; size: number; opacity: number }> = {
+  starlink: { shape: "circle", size: 3, opacity: 0.66 },
+  "gps-ops": { shape: "diamond", size: 8, opacity: 0.96 },
+  stations: { shape: "station", size: 10, opacity: 1 },
+};
+
+// A single linear scale keeps every GPS-to-GPS distance and angle proportional
+// in the overview. It intentionally changes only GPS-to-other-group distances.
+const GPS_OVERVIEW_SCALE = 0.48;
+
+function visualScaleForGroup(group: string) {
+  return group === "gps-ops" ? GPS_OVERVIEW_SCALE : 1;
+}
 
 function lonLatToVector(lon: number, lat: number, radius = 1) {
   const longitude = THREE.MathUtils.degToRad(lon);
@@ -65,6 +126,45 @@ function makePointTexture() {
   gradient.addColorStop(1, "rgba(255,255,255,0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function makeSatelliteGlyphTexture(shape: SatelliteGlyph) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 96;
+  const context = canvas.getContext("2d")!;
+  const center = 48;
+  const glow = context.createRadialGradient(center, center, 3, center, center, 44);
+  glow.addColorStop(0, "rgba(255,255,255,.42)");
+  glow.addColorStop(0.42, "rgba(255,255,255,.14)");
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, 96, 96);
+
+  context.fillStyle = "rgba(255,255,255,1)";
+  if (shape === "circle") {
+    context.beginPath();
+    context.arc(center, center, 16, 0, Math.PI * 2);
+    context.fill();
+  } else if (shape === "diamond") {
+    context.beginPath();
+    context.moveTo(center, 24);
+    context.lineTo(72, center);
+    context.lineTo(center, 72);
+    context.lineTo(24, center);
+    context.closePath();
+    context.fill();
+  } else {
+    context.lineWidth = 8;
+    context.strokeStyle = "rgba(255,255,255,1)";
+    context.strokeRect(30, 30, 36, 36);
+    context.fillStyle = "rgba(255,255,255,.72)";
+    context.fillRect(43, 43, 10, 10);
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -292,7 +392,7 @@ function createCountryBoundaries() {
   );
 }
 
-export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, onStatus, onTime, onApi }: GlobeSceneProps) {
+export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, onStatus, onDataStatus, onTime, onApi }: GlobeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeGroupsRef = useRef(activeGroups);
   const speedRef = useRef(speed);
@@ -331,8 +431,9 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     scene.add(earth.group);
     scene.add(createGraticule());
     scene.add(createCountryBoundaries());
-    const abortController = new AbortController();
-    void addCoastlines(scene, abortController.signal);
+    const coastlineAbortController = new AbortController();
+    const dataAbortController = new AbortController();
+    void addCoastlines(scene, coastlineAbortController.signal);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -345,21 +446,41 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     controls.autoRotate = !reducedMotion.matches;
 
-    const pointTexture = makePointTexture();
-    const pointsGeometry = new THREE.BufferGeometry();
-    const pointsMaterial = new THREE.PointsMaterial({
-      size: 0.035,
-      map: pointTexture,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.88,
-      alphaTest: 0.02,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      sizeAttenuation: true,
+    const selectionTexture = makePointTexture();
+    type PointLayer = {
+      indices: number[];
+      positions: Float32Array | null;
+      geometry: THREE.BufferGeometry;
+      points: THREE.Points;
+    };
+    const pointLayers = new Map<string, PointLayer>();
+    const pointTextures: THREE.Texture[] = [selectionTexture];
+
+    DATA_GROUPS.forEach((group) => {
+      const marker = GROUP_MARKERS[group];
+      const texture = makeSatelliteGlyphTexture(marker.shape);
+      const geometry = new THREE.BufferGeometry();
+      const material = new THREE.PointsMaterial({
+        // Sprite sizes are screen-space pixels: zooming in must not make a
+        // satellite category disappear or become indistinguishable.
+        size: marker.size,
+        map: texture,
+        color: GROUP_COLORS[group],
+        transparent: true,
+        opacity: marker.opacity,
+        alphaTest: 0.02,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: false,
+      });
+      const points = new THREE.Points(geometry, material);
+      // Positions are updated by a Worker every frame; avoid stale bounds hiding
+      // a category after a close camera move.
+      points.frustumCulled = false;
+      scene.add(points);
+      pointTextures.push(texture);
+      pointLayers.set(group, { indices: [], positions: null, geometry, points });
     });
-    const points = new THREE.Points(pointsGeometry, pointsMaterial);
-    scene.add(points);
 
     const orbitGeometry = new THREE.BufferGeometry();
     const orbitLine = new THREE.Line(
@@ -378,7 +499,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     scene.add(coverageLine);
 
     const marker = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: pointTexture,
+      map: selectionTexture,
       color: 0xffffff,
       transparent: true,
       opacity: 1,
@@ -408,23 +529,52 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let focusTarget: THREE.Vector3 | null = null;
     let updateTimer = 0;
     let frameRequestedAt = 0;
-    let dataSource: "live" | "snapshot" = "live";
-    let dataFetchedAt: string | null = null;
+    let dataSummary = "正在加载数据";
+    let dataRequestId = 0;
 
-    const applyColors = () => {
-      if (!satellites.length) return;
-      const colors = new Float32Array(satellites.length * 3);
-      satellites.forEach((satellite, index) => {
-        const color = activeGroupsRef.current.has(satellite.group)
-          ? GROUP_COLORS[satellite.group] ?? new THREE.Color(0xffffff)
-          : new THREE.Color(0x000000);
-        colors[index * 3] = color.r;
-        colors[index * 3 + 1] = color.g;
-        colors[index * 3 + 2] = color.b;
-      });
-      pointsGeometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    const readVisualPosition = (target: THREE.Vector3, index: number) => {
+      const scale = visualScaleForGroup(satellites[index]?.group ?? "");
+      return target.fromArray(renderedPositions!, index * 3).multiplyScalar(scale);
     };
-    recolorRef.current = applyColors;
+
+    const applyGroupVisibility = () => {
+      pointLayers.forEach((layer, group) => {
+        layer.points.visible = activeGroupsRef.current.has(group);
+      });
+    };
+
+    const buildPointLayers = () => {
+      pointLayers.forEach((layer, group) => {
+        layer.indices = satellites.flatMap((satellite, index) => satellite.group === group ? [index] : []);
+        layer.positions = new Float32Array(layer.indices.length * 3);
+        const attribute = new THREE.BufferAttribute(layer.positions, 3);
+        attribute.setUsage(THREE.DynamicDrawUsage);
+        layer.geometry.setAttribute("position", attribute);
+      });
+      applyGroupVisibility();
+    };
+
+    const syncPointLayerPositions = () => {
+      if (!renderedPositions) return;
+      pointLayers.forEach((layer, group) => {
+        if (!layer.positions) return;
+        const scale = visualScaleForGroup(group);
+        layer.indices.forEach((satelliteIndex, pointIndex) => {
+          const sourceOffset = satelliteIndex * 3;
+          const targetOffset = pointIndex * 3;
+          layer.positions![targetOffset] = renderedPositions![sourceOffset] * scale;
+          layer.positions![targetOffset + 1] = renderedPositions![sourceOffset + 1] * scale;
+          layer.positions![targetOffset + 2] = renderedPositions![sourceOffset + 2] * scale;
+        });
+        layer.geometry.attributes.position.needsUpdate = true;
+      });
+    };
+    recolorRef.current = applyGroupVisibility;
+
+    const handleReducedMotionChange = () => {
+      if (selectedIndex < 0) controls.autoRotate = !reducedMotion.matches;
+    };
+    reducedMotion.addEventListener("change", handleReducedMotionChange);
 
     const updateCoverage = (index: number) => {
       if (!renderedPositions || !telemetry) return;
@@ -465,7 +615,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
 
     const focus = (index: number) => {
       if (!satellites[index]) return false;
-      if (selectedIndex >= 0) return false;
+      if (selectedIndex >= 0 || pendingFocusIndex >= 0) clear();
       if (!renderedPositions) {
         pendingFocusIndex = index;
         return true;
@@ -479,11 +629,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       orbitLine.visible = false;
       emitSelection(index);
       updateCoverage(index);
-      const position = new THREE.Vector3(
-        renderedPositions[index * 3],
-        renderedPositions[index * 3 + 1],
-        renderedPositions[index * 3 + 2],
-      );
+      const position = readVisualPosition(new THREE.Vector3(), index);
       focusTarget = position.clone().normalize().multiplyScalar(2.7);
       worker.postMessage({ type: "orbit", index, time: simulationTime });
       return true;
@@ -513,7 +659,13 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       window.clearTimeout(updateTimer);
       requestFrame();
     };
-    onApi({ focus, clear, resetTime });
+    const setTime = (time: number) => {
+      if (!Number.isFinite(time)) return;
+      simulationTime = time;
+      lastRealTime = performance.now();
+      window.clearTimeout(updateTimer);
+      requestFrame();
+    };
 
     const requestFrame = () => {
       if (disposed || !satellites.length) return;
@@ -533,11 +685,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       if (message.type === "ready") {
         satellites = message.satellites;
         onReady(satellites);
-        applyColors();
-        const fetchedLabel = dataFetchedAt
-          ? ` · ${new Date(dataFetchedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
-          : "";
-        onStatus(`${dataSource === "live" ? "LIVE" : "SNAPSHOT"} · ${satellites.length.toLocaleString("zh-CN")} 颗目标${fetchedLabel}`);
+        buildPointLayers();
+        onStatus(`${dataSummary} · ${satellites.length.toLocaleString("zh-CN")} 颗目标`);
         requestFrame();
       } else if (message.type === "frame") {
         nowPositions = message.now;
@@ -548,7 +697,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         frameDuration = Math.max(250, message.nextTime - message.time) / Math.max(speedRef.current, 1);
         if (!renderedPositions || renderedPositions.length !== nowPositions!.length) {
           renderedPositions = nowPositions!.slice();
-          pointsGeometry.setAttribute("position", new THREE.BufferAttribute(renderedPositions, 3));
+          syncPointLayerPositions();
         }
         if (pendingFocusIndex >= 0) {
           const index = pendingFocusIndex;
@@ -561,39 +710,90 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         const delay = Math.max(0, interval - (performance.now() - frameRequestedAt));
         updateTimer = window.setTimeout(requestFrame, delay);
       } else if (message.type === "orbit" && message.index === selectedIndex) {
-        orbitGeometry.setAttribute("position", new THREE.BufferAttribute(message.points, 3));
+        const orbitPoints = message.points.slice();
+        const scale = visualScaleForGroup(satellites[message.index]?.group ?? "");
+        if (scale !== 1) {
+          for (let index = 0; index < orbitPoints.length; index += 1) orbitPoints[index] *= scale;
+        }
+        orbitGeometry.setAttribute("position", new THREE.BufferAttribute(orbitPoints, 3));
         orbitLine.visible = true;
       }
     };
 
-    Promise.all(["starlink", "gps-ops", "stations"].map(async (group) => {
+    worker.onerror = () => {
+      if (!disposed) onStatus("轨道计算器不可用 · 请刷新页面重试");
+    };
+
+    const fetchGroup = async (group: string): Promise<LoadedGroup> => {
       try {
-        const response = await fetch(`/api/tle?group=${group}`);
-        if (!response.ok) throw new Error("live unavailable");
-        const live = response.headers.get("x-orbital-source") === "celestrak-live";
+        const response = await fetch(`/api/tle?group=${group}`, { signal: dataAbortController.signal });
+        if (!response.ok) throw new Error("轨道服务不可用");
+        const text = await response.text();
+        const fallbackMetadata = readTleMetadata(text);
+        const source = response.headers.get("x-orbital-source") === "celestrak-live" ? "live" : "snapshot";
+        const recordCount = Number.parseInt(response.headers.get("x-orbital-record-count") ?? "", 10);
+        const epochValue = response.headers.get("x-orbital-tle-epoch-max");
         return {
           group,
-          text: await response.text(),
-          live,
-          fetchedAt: response.headers.get("x-orbital-fetched-at"),
+          text,
+          source,
+          recordCount: Number.isFinite(recordCount) ? recordCount : fallbackMetadata.recordCount,
+          tleEpoch: epochValue ? Date.parse(epochValue) : fallbackMetadata.tleEpoch,
         };
       } catch {
-        const response = await fetch(`/tle/${group}.tle`);
-        if (!response.ok) throw new Error(`snapshot unavailable: ${group}`);
+        const response = await fetch(`/tle/${group}.tle`, { signal: dataAbortController.signal });
+        if (!response.ok) throw new Error("本地快照不可用");
+        const text = await response.text();
+        const metadata = readTleMetadata(text);
+        if (!metadata.recordCount) throw new Error("本地快照无有效轨道记录");
+        return { group, text, source: "snapshot", ...metadata };
+      }
+    };
+
+    const loadOrbitData = async () => {
+      const requestId = ++dataRequestId;
+      onDataStatus(DATA_GROUPS.map((group) => ({ group, source: "loading" })));
+      onStatus("正在更新轨道数据");
+      const settled = await Promise.allSettled(DATA_GROUPS.map(fetchGroup));
+      if (disposed || requestId !== dataRequestId) return;
+
+      const groups: LoadedGroup[] = [];
+      const statuses: OrbitGroupStatus[] = settled.map((result, index) => {
+        const group = DATA_GROUPS[index];
+        if (result.status === "fulfilled") {
+          groups.push(result.value);
+          return {
+            group,
+            source: result.value.source,
+            recordCount: result.value.recordCount,
+            tleEpoch: result.value.tleEpoch,
+          };
+        }
         return {
           group,
-          text: await response.text(),
-          live: false,
-          fetchedAt: response.headers.get("x-orbital-fetched-at"),
+          source: "failed",
+          error: result.reason instanceof Error ? result.reason.message : "加载失败",
         };
+      });
+
+      onDataStatus(statuses);
+      if (!groups.length) {
+        onReady([]);
+        onStatus("轨道数据暂不可用");
+        return;
       }
-    })).then((groups) => {
-      dataSource = groups.every((group) => group.live) ? "live" : "snapshot";
-      dataFetchedAt = groups.map((group) => group.fetchedAt).find(Boolean) ?? null;
-      if (!disposed) worker.postMessage({ type: "load", groups });
-    }).catch(() => {
-      if (!disposed) onStatus("轨道数据暂不可用");
-    });
+
+      const liveCount = groups.filter((group) => group.source === "live").length;
+      dataSummary = liveCount === groups.length
+        ? "LIVE"
+        : liveCount
+          ? "MIXED"
+          : "SNAPSHOT";
+      worker.postMessage({ type: "load", groups });
+    };
+
+    onApi({ focus, clear, resetTime, setTime, reload: () => { void loadOrbitData(); } });
+    void loadOrbitData();
 
     const pointer = new THREE.Vector2();
     const pointerStart = new THREE.Vector2();
@@ -611,9 +811,9 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       let closestIndex = -1;
       let closestDistance = 18;
 
-      satellites.forEach((satellite, index) => {
-        if (!activeGroupsRef.current.has(satellite.group)) return;
-        worldPosition.fromArray(renderedPositions!, index * 3);
+          satellites.forEach((satellite, index) => {
+            if (!activeGroupsRef.current.has(satellite.group)) return;
+            readVisualPosition(worldPosition, index);
         sightLine.set(camera.position, worldPosition.clone().sub(camera.position).normalize());
         const obstruction = sightLine.intersectSphere(earthBounds, projected);
         if (obstruction && camera.position.distanceTo(obstruction) < camera.position.distanceTo(worldPosition) - 0.01) return;
@@ -650,10 +850,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         for (let index = 0; index < renderedPositions.length; index += 1) {
           renderedPositions[index] = THREE.MathUtils.lerp(nowPositions[index], nextPositions[index], progress);
         }
-        pointsGeometry.attributes.position.needsUpdate = true;
-        if (selectedIndex >= 0) {
-          marker.position.fromArray(renderedPositions, selectedIndex * 3);
-          updateCoverage(selectedIndex);
+            syncPointLayerPositions();
+            if (selectedIndex >= 0) {
+              readVisualPosition(marker.position, selectedIndex);
+              updateCoverage(selectedIndex);
         }
       }
       if (focusTarget) {
@@ -667,10 +867,12 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
 
     return () => {
       disposed = true;
-      abortController.abort();
+      coastlineAbortController.abort();
+      dataAbortController.abort();
       window.clearTimeout(updateTimer);
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", resize);
+      reducedMotion.removeEventListener("change", handleReducedMotionChange);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       controls.dispose();
@@ -685,11 +887,11 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       });
       earth.textures.forEach((texture) => texture.dispose());
       renderer.dispose();
-      pointTexture.dispose();
+      pointTextures.forEach((texture) => texture.dispose());
       renderer.domElement.remove();
       recolorRef.current = null;
     };
-  }, [onApi, onReady, onSelect, onStatus, onTime]);
+  }, [onApi, onDataStatus, onReady, onSelect, onStatus, onTime]);
 
   return <div ref={containerRef} className="globe-scene" aria-label="可交互的三维地球卫星轨迹" />;
 }
