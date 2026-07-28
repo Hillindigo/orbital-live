@@ -104,9 +104,13 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(route, /x-orbital-served-at/);
   assert.match(route, /bundled-snapshot/);
   assert.match(route, /AbortSignal\.timeout/);
+  assert.match(route, /const forceRefresh = url\.searchParams\.has\("refresh"\)/);
+  assert.match(route, /forceRefresh \? "no-store"/);
   assert.match(scene, /Promise\.allSettled/);
   assert.match(scene, /source: "failed"/);
   assert.match(scene, /reload: \(\) =>/);
+  assert.match(scene, /refresh=\$\{Date\.now\(\)\}/);
+  assert.match(scene, /cache: forceRefresh \? "no-store" : "default"/);
   assert.match(scene, /sizeAttenuation: false/);
   assert.match(scene, /points\.frustumCulled = false/);
   assert.match(scene, /makeSatelliteGlyphTexture/);

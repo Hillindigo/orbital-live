@@ -724,9 +724,13 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       if (!disposed) onStatus("轨道计算器不可用 · 请刷新页面重试");
     };
 
-    const fetchGroup = async (group: string): Promise<LoadedGroup> => {
+    const fetchGroup = async (group: string, forceRefresh = false): Promise<LoadedGroup> => {
       try {
-        const response = await fetch(`/api/tle?group=${group}`, { signal: dataAbortController.signal });
+        const refreshQuery = forceRefresh ? `&refresh=${Date.now()}` : "";
+        const response = await fetch(`/api/tle?group=${group}${refreshQuery}`, {
+          signal: dataAbortController.signal,
+          cache: forceRefresh ? "no-store" : "default",
+        });
         if (!response.ok) throw new Error("轨道服务不可用");
         const text = await response.text();
         const fallbackMetadata = readTleMetadata(text);
@@ -750,11 +754,11 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       }
     };
 
-    const loadOrbitData = async () => {
+    const loadOrbitData = async (forceRefresh = false) => {
       const requestId = ++dataRequestId;
       onDataStatus(DATA_GROUPS.map((group) => ({ group, source: "loading" })));
-      onStatus("正在更新轨道数据");
-      const settled = await Promise.allSettled(DATA_GROUPS.map(fetchGroup));
+      onStatus(forceRefresh ? "正在向 CelesTrak 强制更新轨道数据" : "正在更新轨道数据");
+      const settled = await Promise.allSettled(DATA_GROUPS.map((group) => fetchGroup(group, forceRefresh)));
       if (disposed || requestId !== dataRequestId) return;
 
       const groups: LoadedGroup[] = [];
@@ -792,7 +796,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       worker.postMessage({ type: "load", groups });
     };
 
-    onApi({ focus, clear, resetTime, setTime, reload: () => { void loadOrbitData(); } });
+    onApi({ focus, clear, resetTime, setTime, reload: () => { void loadOrbitData(true); } });
     void loadOrbitData();
 
     const pointer = new THREE.Vector2();

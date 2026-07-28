@@ -43,12 +43,14 @@ function parseTleMetadata(text: string): TleMetadata {
   };
 }
 
-function tleResponse(text: string, source: "celestrak-live" | "bundled-snapshot") {
+function tleResponse(text: string, source: "celestrak-live" | "bundled-snapshot", forceRefresh = false) {
   const metadata = parseTleMetadata(text);
   return new Response(text, {
     headers: {
       "content-type": "text/plain; charset=utf-8",
-      "cache-control": "public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400",
+      // A normal page load may reuse TLE data briefly. A user-triggered refresh
+      // must retry the upstream source instead of preserving an old snapshot.
+      "cache-control": forceRefresh ? "no-store" : "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
       "x-orbital-source": source,
       "x-orbital-served-at": new Date().toISOString(),
       "x-orbital-tle-epoch-min": metadata.oldestEpoch,
@@ -61,6 +63,7 @@ function tleResponse(text: string, source: "celestrak-live" | "bundled-snapshot"
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const group = url.searchParams.get("group") ?? "stations";
+  const forceRefresh = url.searchParams.has("refresh");
 
   if (!ALLOWED_GROUPS.has(group)) {
     return new Response("Unsupported group", { status: 400 });
@@ -71,12 +74,13 @@ export async function GET(request: Request) {
       `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`,
       {
         headers: { "User-Agent": "Orbital-Live/1.0" },
+        cache: forceRefresh ? "no-store" : "default",
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       },
     );
     if (!upstream.ok) throw new Error(`CelesTrak ${upstream.status}`);
-    return tleResponse(await upstream.text(), "celestrak-live");
+    return tleResponse(await upstream.text(), "celestrak-live", forceRefresh);
   } catch {
-    return tleResponse(SNAPSHOTS[group], "bundled-snapshot");
+    return tleResponse(SNAPSHOTS[group], "bundled-snapshot", forceRefresh);
   }
 }
