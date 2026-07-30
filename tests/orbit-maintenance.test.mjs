@@ -150,8 +150,8 @@ test("gates Cloudflare production deployment behind verification and repository 
   assert.match(workflow, /npm run typecheck/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /needs: verify/);
-  assert.match(workflow, /actions\/upload-artifact@v4/);
-  assert.match(workflow, /actions\/download-artifact@v4/);
+  assert.match(workflow, /actions\/upload-artifact@v7/);
+  assert.match(workflow, /actions\/download-artifact@v7/);
   assert.match(workflow, /secrets\.CLOUDFLARE_API_TOKEN/);
   assert.match(workflow, /vars\.CLOUDFLARE_ACCOUNT_ID/);
   assert.match(
