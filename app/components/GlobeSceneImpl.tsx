@@ -5,42 +5,22 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { feature, mesh } from "topojson-client";
 import countriesAtlas from "world-atlas/countries-110m.json";
-
-export type SatelliteMeta = {
-  index: number;
-  name: string;
-  norad: string;
-  group: string;
-  period: number;
-  country: string;
-  operator: string;
-  launchYear: number | null;
-  epochTime: number | null;
-};
-
-export type SatelliteSnapshot = SatelliteMeta & {
-  latitude: number;
-  longitude: number;
-  altitude: number;
-  velocity: number;
-};
-
-export type OrbitGroupStatus = {
-  group: string;
-  source: "loading" | "live" | "snapshot" | "failed";
-  recordCount?: number;
-  tleEpoch?: number;
-  servedAt?: number;
-  error?: string;
-};
-
-export type GlobeSceneApi = {
-  focus: (index: number) => boolean;
-  clear: () => void;
-  resetTime: () => void;
-  setTime: (time: number) => void;
-  reload: () => void;
-};
+import {
+  ORBIT_GROUP_IDS,
+  ORBIT_GROUPS,
+  type SatelliteGlyph,
+} from "../lib/orbit-groups";
+import {
+  OVERVIEW_MAX_DISTANCE,
+  getFocusCameraDistance,
+} from "../lib/orbit-camera.mjs";
+import type {
+  GlobeSceneApi,
+  OrbitGroupStatus,
+  SatelliteMeta,
+  SatelliteSnapshot,
+} from "../lib/orbit-types";
+import { parseTleMetadata } from "../lib/tle-data.mjs";
 
 export type GlobeSceneProps = {
   activeGroups: Set<string>;
@@ -54,8 +34,6 @@ export type GlobeSceneProps = {
   onApi: (api: GlobeSceneApi) => void;
 };
 
-const DATA_GROUPS = ["starlink", "gps-ops", "stations"];
-
 type LoadedGroup = {
   group: string;
   text: string;
@@ -65,45 +43,12 @@ type LoadedGroup = {
   servedAt: number;
 };
 
-function readTleMetadata(text: string) {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const epochs: number[] = [];
-
-  for (let index = 0; index + 2 < lines.length; index += 3) {
-    const [, line1, line2] = lines.slice(index, index + 3);
-    if (!line1.startsWith("1 ") || !line2.startsWith("2 ")) continue;
-    const epoch = line1.slice(18, 32).trim();
-    const shortYear = Number.parseInt(epoch.slice(0, 2), 10);
-    const dayOfYear = Number.parseFloat(epoch.slice(2));
-    if (!Number.isInteger(shortYear) || !Number.isFinite(dayOfYear)) continue;
-    const year = shortYear >= 57 ? 1900 + shortYear : 2000 + shortYear;
-    epochs.push(Date.UTC(year, 0, 1) + (dayOfYear - 1) * 86_400_000);
-  }
-
-  return { recordCount: epochs.length, tleEpoch: epochs.length ? Math.max(...epochs) : undefined };
-}
-
-const GROUP_COLORS: Record<string, THREE.Color> = {
-  starlink: new THREE.Color("#73e6ff"),
-  "gps-ops": new THREE.Color("#ffd36a"),
-  stations: new THREE.Color("#ff7f66"),
-};
-
-type SatelliteGlyph = "circle" | "diamond" | "station";
-
-const GROUP_MARKERS: Record<string, { shape: SatelliteGlyph; size: number; opacity: number }> = {
-  starlink: { shape: "circle", size: 3, opacity: 0.66 },
-  "gps-ops": { shape: "diamond", size: 8, opacity: 0.96 },
-  stations: { shape: "station", size: 10, opacity: 1 },
-};
-
-// A single linear scale keeps every GPS-to-GPS distance and angle proportional
-// in the overview. It intentionally changes only GPS-to-other-group distances.
-const GPS_OVERVIEW_SCALE = 0.48;
-
-function visualScaleForGroup(group: string) {
-  return group === "gps-ops" ? GPS_OVERVIEW_SCALE : 1;
-}
+const GROUP_COLORS = new Map(
+  ORBIT_GROUPS.map((group) => [group.id, new THREE.Color(group.color)]),
+);
+const GROUP_MARKERS = new Map(
+  ORBIT_GROUPS.map((group) => [group.id, group.marker]),
+);
 
 function lonLatToVector(lon: number, lat: number, radius = 1) {
   const longitude = THREE.MathUtils.degToRad(lon);
@@ -442,11 +387,12 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     controls.dampingFactor = 0.06;
     controls.enablePan = false;
     controls.minDistance = 1.65;
-    controls.maxDistance = 6.5;
+    controls.maxDistance = OVERVIEW_MAX_DISTANCE;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.22;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     controls.autoRotate = !reducedMotion.matches;
+    let autoRotateEnabled = !reducedMotion.matches;
 
     const selectionTexture = makePointTexture();
     type PointLayer = {
@@ -458,8 +404,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     const pointLayers = new Map<string, PointLayer>();
     const pointTextures: THREE.Texture[] = [selectionTexture];
 
-    DATA_GROUPS.forEach((group) => {
-      const marker = GROUP_MARKERS[group];
+    ORBIT_GROUP_IDS.forEach((group) => {
+      const marker = GROUP_MARKERS.get(group)!;
       const texture = makeSatelliteGlyphTexture(marker.shape);
       const geometry = new THREE.BufferGeometry();
       const material = new THREE.PointsMaterial({
@@ -467,7 +413,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         // satellite category disappear or become indistinguishable.
         size: marker.size,
         map: texture,
-        color: GROUP_COLORS[group],
+        color: GROUP_COLORS.get(group)!,
         transparent: true,
         opacity: marker.opacity,
         alphaTest: 0.02,
@@ -522,7 +468,6 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let pendingFocusIndex = -1;
     let cameraBeforeFocus: THREE.Vector3 | null = null;
     let targetBeforeFocus: THREE.Vector3 | null = null;
-    let autoRotateBeforeFocus = controls.autoRotate;
     let frameStart = performance.now();
     let frameDuration = 1000;
     let disposed = false;
@@ -535,8 +480,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let dataRequestId = 0;
 
     const readVisualPosition = (target: THREE.Vector3, index: number) => {
-      const scale = visualScaleForGroup(satellites[index]?.group ?? "");
-      return target.fromArray(renderedPositions!, index * 3).multiplyScalar(scale);
+      return target.fromArray(renderedPositions!, index * 3);
     };
 
     const applyGroupVisibility = () => {
@@ -558,15 +502,14 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
 
     const syncPointLayerPositions = () => {
       if (!renderedPositions) return;
-      pointLayers.forEach((layer, group) => {
+      pointLayers.forEach((layer) => {
         if (!layer.positions) return;
-        const scale = visualScaleForGroup(group);
         layer.indices.forEach((satelliteIndex, pointIndex) => {
           const sourceOffset = satelliteIndex * 3;
           const targetOffset = pointIndex * 3;
-          layer.positions![targetOffset] = renderedPositions![sourceOffset] * scale;
-          layer.positions![targetOffset + 1] = renderedPositions![sourceOffset + 1] * scale;
-          layer.positions![targetOffset + 2] = renderedPositions![sourceOffset + 2] * scale;
+          layer.positions![targetOffset] = renderedPositions![sourceOffset];
+          layer.positions![targetOffset + 1] = renderedPositions![sourceOffset + 1];
+          layer.positions![targetOffset + 2] = renderedPositions![sourceOffset + 2];
         });
         layer.geometry.attributes.position.needsUpdate = true;
       });
@@ -574,7 +517,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     recolorRef.current = applyGroupVisibility;
 
     const handleReducedMotionChange = () => {
-      if (selectedIndex < 0) controls.autoRotate = !reducedMotion.matches;
+      if (selectedIndex < 0) controls.autoRotate = autoRotateEnabled && !reducedMotion.matches;
     };
     reducedMotion.addEventListener("change", handleReducedMotionChange);
 
@@ -624,7 +567,6 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       }
       cameraBeforeFocus = camera.position.clone();
       targetBeforeFocus = controls.target.clone();
-      autoRotateBeforeFocus = controls.autoRotate;
       selectedIndex = index;
       controls.autoRotate = false;
       marker.visible = true;
@@ -632,7 +574,8 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       emitSelection(index);
       updateCoverage(index);
       const position = readVisualPosition(new THREE.Vector3(), index);
-      focusTarget = position.clone().normalize().multiplyScalar(2.7);
+      focusTarget = position.clone().normalize()
+        .multiplyScalar(getFocusCameraDistance(position.length()));
       worker.postMessage({ type: "orbit", index, time: simulationTime });
       return true;
     };
@@ -650,7 +593,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         controls.target.copy(targetBeforeFocus);
       }
       focusTarget = null;
-      controls.autoRotate = autoRotateBeforeFocus;
+      controls.autoRotate = autoRotateEnabled && !reducedMotion.matches;
       cameraBeforeFocus = null;
       targetBeforeFocus = null;
       onSelect(null);
@@ -667,6 +610,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       lastRealTime = performance.now();
       window.clearTimeout(updateTimer);
       requestFrame();
+    };
+    const setAutoRotate = (enabled: boolean) => {
+      autoRotateEnabled = enabled;
+      if (selectedIndex < 0) controls.autoRotate = enabled && !reducedMotion.matches;
     };
 
     const requestFrame = () => {
@@ -713,10 +660,6 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         updateTimer = window.setTimeout(requestFrame, delay);
       } else if (message.type === "orbit" && message.index === selectedIndex) {
         const orbitPoints = message.points.slice();
-        const scale = visualScaleForGroup(satellites[message.index]?.group ?? "");
-        if (scale !== 1) {
-          for (let index = 0; index < orbitPoints.length; index += 1) orbitPoints[index] *= scale;
-        }
         orbitGeometry.setAttribute("position", new THREE.BufferAttribute(orbitPoints, 3));
         orbitLine.visible = true;
       }
@@ -735,7 +678,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         });
         if (!response.ok) throw new Error("轨道服务不可用");
         const text = await response.text();
-        const fallbackMetadata = readTleMetadata(text);
+        const fallbackMetadata = parseTleMetadata(text);
         const source = response.headers.get("x-orbital-source") === "celestrak-live" ? "live" : "snapshot";
         const recordCount = Number.parseInt(response.headers.get("x-orbital-record-count") ?? "", 10);
         const epochValue = response.headers.get("x-orbital-tle-epoch-max");
@@ -745,29 +688,35 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
           text,
           source,
           recordCount: Number.isFinite(recordCount) ? recordCount : fallbackMetadata.recordCount,
-          tleEpoch: epochValue ? Date.parse(epochValue) : fallbackMetadata.tleEpoch,
+          tleEpoch: epochValue ? Date.parse(epochValue) : fallbackMetadata.newestEpoch,
           servedAt: servedAtValue ? Date.parse(servedAtValue) : Date.now(),
         };
       } catch {
         const response = await fetch(`/tle/${group}.tle`, { signal: dataAbortController.signal });
         if (!response.ok) throw new Error("本地快照不可用");
         const text = await response.text();
-        const metadata = readTleMetadata(text);
-        if (!metadata.recordCount) throw new Error("本地快照无有效轨道记录");
-        return { group, text, source: "snapshot", ...metadata, servedAt: Date.now() };
+        const metadata = parseTleMetadata(text);
+        return {
+          group,
+          text,
+          source: "snapshot",
+          recordCount: metadata.recordCount,
+          tleEpoch: metadata.newestEpoch,
+          servedAt: Date.now(),
+        };
       }
     };
 
     const loadOrbitData = async (forceRefresh = false) => {
       const requestId = ++dataRequestId;
-      onDataStatus(DATA_GROUPS.map((group) => ({ group, source: "loading" })));
+      onDataStatus(ORBIT_GROUP_IDS.map((group) => ({ group, source: "loading" })));
       onStatus(forceRefresh ? "正在向 CelesTrak 强制更新轨道数据" : "正在更新轨道数据");
-      const settled = await Promise.allSettled(DATA_GROUPS.map((group) => fetchGroup(group, forceRefresh)));
+      const settled = await Promise.allSettled(ORBIT_GROUP_IDS.map((group) => fetchGroup(group, forceRefresh)));
       if (disposed || requestId !== dataRequestId) return;
 
       const groups: LoadedGroup[] = [];
       const statuses: OrbitGroupStatus[] = settled.map((result, index) => {
-        const group = DATA_GROUPS[index];
+        const group = ORBIT_GROUP_IDS[index];
         if (result.status === "fulfilled") {
           groups.push(result.value);
           return {
@@ -801,7 +750,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       worker.postMessage({ type: "load", groups });
     };
 
-    onApi({ focus, clear, resetTime, setTime, reload: () => { void loadOrbitData(true); } });
+    onApi({ focus, clear, resetTime, setTime, setAutoRotate, reload: () => { void loadOrbitData(true); } });
     void loadOrbitData();
 
     const pointer = new THREE.Vector2();

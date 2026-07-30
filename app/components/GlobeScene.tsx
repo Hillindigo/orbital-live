@@ -3,7 +3,12 @@
 import dynamic from "next/dynamic";
 import type { GlobeSceneProps } from "./GlobeSceneImpl";
 
-export type { GlobeSceneApi, OrbitGroupStatus, SatelliteMeta, SatelliteSnapshot } from "./GlobeSceneImpl";
+export type {
+  GlobeSceneApi,
+  OrbitGroupStatus,
+  SatelliteMeta,
+  SatelliteSnapshot,
+} from "../lib/orbit-types";
 
 const GlobeSceneClient = dynamic(
   () => import("./GlobeSceneImpl").then((module) => module.GlobeScene),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GlobeScene,
   type GlobeSceneApi,
@@ -8,13 +8,27 @@ import {
   type SatelliteMeta,
   type SatelliteSnapshot,
 } from "./components/GlobeScene";
+import { ORBIT_GROUPS } from "./lib/orbit-groups";
 
-const GROUPS = [
-  { id: "starlink", label: "Starlink", color: "#73e6ff", shape: "circle" },
-  { id: "gps-ops", label: "GPS", color: "#ffd36a", shape: "diamond" },
-  { id: "stations", label: "空间站", color: "#ff7f66", shape: "station" },
-] as const;
 const TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1000;
+type UiLayout = { autoRotate: boolean; leftPanelVisible: boolean; detailPanelVisible: boolean };
+const DEFAULT_UI_LAYOUT: UiLayout = { autoRotate: true, leftPanelVisible: true, detailPanelVisible: true };
+
+function readUiLayout(): UiLayout {
+  if (typeof window === "undefined") return DEFAULT_UI_LAYOUT;
+  try {
+    const saved = window.localStorage.getItem("orbital-ui-layout");
+    if (!saved) return DEFAULT_UI_LAYOUT;
+    const layout = JSON.parse(saved) as Partial<UiLayout>;
+    return {
+      autoRotate: typeof layout.autoRotate === "boolean" ? layout.autoRotate : true,
+      leftPanelVisible: typeof layout.leftPanelVisible === "boolean" ? layout.leftPanelVisible : true,
+      detailPanelVisible: typeof layout.detailPanelVisible === "boolean" ? layout.detailPanelVisible : true,
+    };
+  } catch {
+    return DEFAULT_UI_LAYOUT;
+  }
+}
 
 function formatClock(date: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -53,7 +67,7 @@ function formatRefreshAge(servedAt?: number) {
 
 export default function Home() {
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
-    () => new Set(GROUPS.map((group) => group.id)),
+    () => new Set(ORBIT_GROUPS.map((group) => group.id)),
   );
   const [satellites, setSatellites] = useState<SatelliteMeta[]>([]);
   const [selected, setSelected] = useState<SatelliteSnapshot | null>(null);
@@ -64,11 +78,23 @@ export default function Home() {
   const [playing, setPlaying] = useState(true);
   const [status, setStatus] = useState("正在连接轨道数据");
   const [dataStatuses, setDataStatuses] = useState<OrbitGroupStatus[]>(
-    () => GROUPS.map((group) => ({ group: group.id, source: "loading" })),
+    () => ORBIT_GROUPS.map((group) => ({ group: group.id, source: "loading" })),
   );
   const [sceneApi, setSceneApi] = useState<GlobeSceneApi | null>(null);
   const [timelineStart, setTimelineStart] = useState(() => Date.now() - TIMELINE_WINDOW_MS / 2);
+  const [autoRotate, setAutoRotate] = useState(() => readUiLayout().autoRotate);
+  const [leftPanelVisible, setLeftPanelVisible] = useState(() => readUiLayout().leftPanelVisible);
+  const [detailPanelVisible, setDetailPanelVisible] = useState(() => readUiLayout().detailPanelVisible);
+  const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem("orbital-ui-layout", JSON.stringify({ autoRotate, leftPanelVisible, detailPanelVisible }));
+  }, [autoRotate, detailPanelVisible, leftPanelVisible]);
+
+  useEffect(() => {
+    sceneApi?.setAutoRotate(autoRotate);
+  }, [autoRotate, sceneApi]);
 
   useEffect(() => {
     const handleGlobalKeys = (event: KeyboardEvent) => {
@@ -185,6 +211,10 @@ export default function Home() {
 
   const webglUnavailable = status.startsWith("WebGL");
   const dataUnavailable = status === "轨道数据暂不可用";
+  const handleSatelliteSelect = useCallback((satellite: SatelliteSnapshot | null) => {
+    setSelected(satellite);
+    if (satellite && !detailPanelManuallyHiddenRef.current) setDetailPanelVisible(true);
+  }, []);
 
   return (
     <main className="orbital-app">
@@ -193,7 +223,7 @@ export default function Home() {
         speed={speed}
         playing={playing}
         onReady={setSatellites}
-        onSelect={setSelected}
+        onSelect={handleSatelliteSelect}
         onStatus={setStatus}
         onDataStatus={setDataStatuses}
         onTime={setSimulationTime}
@@ -218,7 +248,7 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="mission-panel glass-panel" aria-label="轨道控制">
+      <section className={leftPanelVisible ? "mission-panel glass-panel" : "mission-panel glass-panel panel-hidden"} aria-label="轨道控制">
         <p className="eyebrow">低地球轨道 · TLE 轨道推算</p>
         <h1>看见地球<br /><em>正在发生</em>的轨道</h1>
         <p className="lede">
@@ -270,14 +300,14 @@ export default function Home() {
         </div>
 
         <div className="group-list" aria-label="星座筛选">
-          {GROUPS.map((group) => (
+          {ORBIT_GROUPS.map((group) => (
             <button
               key={group.id}
               className={activeGroups.has(group.id) ? "group-row active" : "group-row"}
               onClick={() => toggleGroup(group.id)}
               aria-pressed={activeGroups.has(group.id)}
             >
-              <span className={`group-swatch ${group.shape}`} style={{ "--swatch": group.color } as React.CSSProperties} />
+              <span className={`group-swatch ${group.marker.shape}`} style={{ "--swatch": group.color } as React.CSSProperties} />
               <span>{group.label}</span>
               <strong>{(counts[group.id] ?? 0).toLocaleString("zh-CN")}</strong>
               <i className="toggle"><b /></i>
@@ -289,7 +319,7 @@ export default function Home() {
             <span>数据状态</span>
             <button type="button" onClick={() => sceneApi?.reload()} disabled={!sceneApi}>重新加载</button>
           </div>
-          {GROUPS.map((group) => {
+          {ORBIT_GROUPS.map((group) => {
             const groupStatus = statusByGroup.get(group.id);
             const label = groupStatus?.source === "live"
               ? "LIVE"
@@ -326,7 +356,7 @@ export default function Home() {
         </section>
       )}
 
-      <section className={selected ? "satellite-card glass-panel visible" : "satellite-card glass-panel"} aria-live="polite">
+      <section className={`${selected ? "satellite-card glass-panel visible" : "satellite-card glass-panel"}${detailPanelVisible ? "" : " panel-hidden"}`} aria-live="polite">
         {selected ? (
           <>
             <div className="card-heading">
@@ -355,6 +385,45 @@ export default function Home() {
         ) : (
           <div className="empty-selection"><span className="reticle" /><p>选择一个卫星光点<br /><small>查看轨道推算与预测路径</small></p></div>
         )}
+      </section>
+
+      {!leftPanelVisible && (
+        <button type="button" className="panel-peek left" onClick={() => setLeftPanelVisible(true)} aria-label="显示左侧控制面板">
+          <span>控制</span>
+        </button>
+      )}
+      {!detailPanelVisible && (
+        <button type="button" className="panel-peek right" onClick={() => { detailPanelManuallyHiddenRef.current = false; setDetailPanelVisible(true); }} aria-label="显示卫星跟踪面板">
+          <span>跟踪</span>
+        </button>
+      )}
+      <section className="scene-controls glass-panel" aria-label="视图控制">
+        <button
+          type="button"
+          className={autoRotate ? "active" : ""}
+          onClick={() => setAutoRotate((enabled) => !enabled)}
+          aria-pressed={autoRotate}
+          title={autoRotate ? "关闭地球自动旋转" : "开启地球自动旋转"}
+        ><span className="control-icon rotate" aria-hidden="true" />自转</button>
+        <button
+          type="button"
+          className={leftPanelVisible ? "active" : ""}
+          onClick={() => setLeftPanelVisible((visible) => !visible)}
+          aria-pressed={leftPanelVisible}
+          title={leftPanelVisible ? "隐藏左侧控制面板" : "显示左侧控制面板"}
+        ><span className="control-icon left-panel" aria-hidden="true" />控制</button>
+        <button
+          type="button"
+          className={detailPanelVisible ? "active" : ""}
+          onClick={() => {
+            setDetailPanelVisible((visible) => {
+              detailPanelManuallyHiddenRef.current = visible;
+              return !visible;
+            });
+          }}
+          aria-pressed={detailPanelVisible}
+          title={detailPanelVisible ? "隐藏卫星跟踪面板" : "显示卫星跟踪面板"}
+        ><span className="control-icon right-panel" aria-hidden="true" />跟踪</button>
       </section>
 
       <section className="timeline glass-panel" aria-label="时间控制">

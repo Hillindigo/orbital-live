@@ -89,11 +89,13 @@ test("rejects an invalid upstream payload and exposes snapshot epoch metadata", 
 });
 
 test("keeps orbit metadata and fallback behavior explicit", async () => {
-  const [worker, route, scene, page] = await Promise.all([
+  const [worker, route, scene, page, groups, orbitTypes] = await Promise.all([
     readFile(new URL("../app/workers/orbit.worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/tle/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/GlobeSceneImpl.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/config/orbit-groups.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/orbit-types.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(worker, /getEpochTime/);
@@ -116,11 +118,13 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(scene, /points\.frustumCulled = false/);
   assert.match(scene, /makeSatelliteGlyphTexture/);
   assert.match(scene, /GROUP_MARKERS/);
-  assert.match(scene, /shape: "diamond"/);
-  assert.match(scene, /shape: "station"/);
-  assert.match(scene, /size: 8/);
-  assert.match(scene, /const GPS_OVERVIEW_SCALE = 0\.48/);
-  assert.match(scene, /return group === "gps-ops" \? GPS_OVERVIEW_SCALE : 1/);
+  assert.match(groups, /"shape": "diamond"/);
+  assert.match(groups, /"shape": "station"/);
+  assert.match(groups, /"size": 8/);
+  assert.match(orbitTypes, /setAutoRotate: \(enabled: boolean\) => void/);
+  assert.match(scene, /const setAutoRotate = \(enabled: boolean\)/);
+  assert.doesNotMatch(scene, /GPS_OVERVIEW_SCALE/);
+  assert.doesNotMatch(scene, /visualScaleForGroup/);
   assert.match(scene, /WebGL 不可用/);
   assert.match(page, /event\.key === "r"/);
   assert.match(page, /type="range"/);
@@ -128,7 +132,13 @@ test("keeps orbit metadata and fallback behavior explicit", async () => {
   assert.match(page, /role="combobox"/);
   assert.match(page, /onDataStatus/);
   assert.match(page, /TLE 历元/);
-  assert.match(page, /group-swatch \$\{group\.shape\}/);
+  assert.match(page, /group-swatch \$\{group\.marker\.shape\}/);
   assert.match(page, /formatRefreshAge/);
   assert.match(page, /快照 TLE 历元/);
+  assert.match(page, /orbital-ui-layout/);
+  assert.match(page, /scene-controls/);
+  assert.match(page, /panel-peek left/);
+  assert.match(page, /setAutoRotate\(autoRotate\)/);
+  assert.match(page, /const handleSatelliteSelect = useCallback/);
+  assert.match(page, /onSelect=\{handleSatelliteSelect\}/);
 });

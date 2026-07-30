@@ -36,6 +36,7 @@ npm test
 - **时间模拟** — 支持暂停、回到当前时间，以及 1× / 10× / 60× 倍速播放。
 - **搜索筛选** — 按卫星名称或 NORAD ID 搜索，按星座/分组开关显示。
 - **轨道预测** — 选中卫星后绘制未来一个轨道周期的预测轨迹线。
+- **真实空间比例** — Starlink、GPS 与空间站统一使用 SGP4 计算得到的物理轨道半径，不对 GPS 高度做视觉压缩。
 - **数据降级** — CelesTrak 不可用时自动使用 `public/tle/*.tle` 本地快照，并在 UI 和响应头标明来源。
 - **WebGL 降级** — 浏览器硬件加速或 WebGL 不可用时显示明确状态，不让用户面对空白页。
 - **选中锁定** — 跟踪状态下不会误切换目标，需点击 `×` 或按 `Esc` 退出跟踪。
@@ -98,10 +99,12 @@ npm run preview:cloudflare
 ```text
 .
 ├── app/
+│   ├── config/orbit-groups.json  # 卫星分组、标记与快照校验配置
 │   ├── api/tle/route.ts          # CelesTrak 代理 API + 本地快照回退
 │   ├── components/GlobeScene.tsx # 禁用 SSR 的场景包装
 │   ├── components/GlobeSceneImpl.tsx
 │   │                               # Three.js 场景、地球着色器、轨道线、数据获取
+│   ├── lib/                       # 分组配置、共享类型与 TLE 校验
 │   ├── workers/orbit.worker.ts   # TLE 解析、SGP4 传播、遥测计算
 │   ├── globals.css               # 全局视觉样式
 │   ├── layout.tsx                # 根布局与字体
@@ -110,7 +113,10 @@ npm run preview:cloudflare
 │   ├── tle/                      # 打包 TLE 快照
 │   ├── earth-night-lights-2016.jpg
 │   └── ne_110m_land.json
-├── tests/rendered-html.test.mjs  # 构建与渲染验证
+├── scripts/update-tle.mjs        # 下载、校验并原子更新 TLE 快照
+├── tests/                        # 构建、API、配置、校验和更新器测试
+├── .github/workflows/update-tle.yml
+│                                   # 每日更新快照并创建审核 PR
 ├── worker/index.ts               # Cloudflare Worker 入口
 ├── brand-spec.md                 # 视觉规范
 ├── vite.config.ts
@@ -149,7 +155,31 @@ GlobeSceneImpl / Three.js 渲染
 - 预测精度取决于 TLE 根数的时效性和目标轨道特性。
 - 所有 SGP4 计算在 Web Worker 中执行，避免阻塞主线程。
 - `x-orbital-source` 和 `x-orbital-fetched-at` 用于明确数据来源和获取时间。
-- 本地快照需要人工更新：从 CelesTrak 下载对应 group 的 TLE 文本后替换 `public/tle/*.tle`。
+- GitHub Actions 每日下载并校验快照；只有全部分组通过记录数和历元时效检查，且完整质量门禁通过后，才会创建更新 PR。
+- API、页面和 Three.js 场景从 `app/config/orbit-groups.json` 读取统一分组定义。
+
+## TLE 快照维护
+
+检查当前快照的记录数和最新历元：
+
+```bash
+npm run tle:check
+```
+
+手动下载最新 CelesTrak 数据并更新本地快照：
+
+```bash
+npm run tle:update
+npm run verify
+```
+
+自动维护流程位于 `.github/workflows/update-tle.yml`：
+
+- 每天 UTC 02:17 运行，也支持手动触发；
+- 先下载全部分组，再校验最低记录数、TLE 历元、NORAD 配对、重复记录、行校验和与响应格式；
+- 任意分组失败时不写入快照；
+- 更新后执行 lint、类型检查、生产构建和全部测试；
+- 只创建或更新 `automation/tle-snapshots` PR，不直接修改 `main`，也不自动部署。
 
 ## 卫星元数据说明
 

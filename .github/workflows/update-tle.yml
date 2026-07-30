@@ -1,0 +1,75 @@
+name: Update TLE snapshots
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-tle-snapshots
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download and validate TLE snapshots
+        run: npm run tle:update
+
+      - name: Run quality gates against refreshed snapshots
+        run: npm run verify
+
+      - name: Detect snapshot changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet -- public/tle; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update snapshot pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          branch="automation/tle-snapshots"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add public/tle
+          git commit -m "chore(data): refresh TLE snapshots"
+          git push --force-with-lease origin "HEAD:refs/heads/$branch"
+
+          if gh pr view "$branch" --json url >/dev/null 2>&1; then
+            gh pr edit "$branch" \
+              --title "chore(data): refresh TLE snapshots" \
+              --body "Automated daily CelesTrak snapshot refresh. All configured groups passed record-count, epoch-age, lint, typecheck, build, and test validation."
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore(data): refresh TLE snapshots" \
+              --body "Automated daily CelesTrak snapshot refresh. All configured groups passed record-count, epoch-age, lint, typecheck, build, and test validation."
+          fi

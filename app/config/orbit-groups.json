@@ -1,0 +1,41 @@
+[
+  {
+    "id": "starlink",
+    "celestrakGroup": "starlink",
+    "label": "Starlink",
+    "color": "#73e6ff",
+    "marker": {
+      "shape": "circle",
+      "size": 3,
+      "opacity": 0.66
+    },
+    "minimumRecords": 5000,
+    "maximumEpochAgeHours": 96
+  },
+  {
+    "id": "gps-ops",
+    "celestrakGroup": "gps-ops",
+    "label": "GPS",
+    "color": "#ffd36a",
+    "marker": {
+      "shape": "diamond",
+      "size": 8,
+      "opacity": 0.96
+    },
+    "minimumRecords": 20,
+    "maximumEpochAgeHours": 96
+  },
+  {
+    "id": "stations",
+    "celestrakGroup": "stations",
+    "label": "空间站",
+    "color": "#ff7f66",
+    "marker": {
+      "shape": "station",
+      "size": 10,
+      "opacity": 1
+    },
+    "minimumRecords": 10,
+    "maximumEpochAgeHours": 96
+  }
+]
