@@ -2,7 +2,8 @@ node_modules/
 dist/
 .next/
 .vinext/
-build/
+build/*
+!build/sites-vite-plugin.ts
 .wrangler/
 .dev-server*.log
 .dev-server.pid

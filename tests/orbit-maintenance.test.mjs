@@ -162,3 +162,12 @@ test("gates Cloudflare production deployment behind verification and repository 
   assert.match(workflow, /\/api\/tle\?group=stations/);
   assert.doesNotMatch(workflow, /1ab3dcd70862417f8f38862c2b15f894/);
 });
+
+test("tracks the Sites build plugin required by Vite and CI", async () => {
+  const gitignore = await readProjectFile(".gitignore");
+  const plugin = await readProjectFile("build/sites-vite-plugin.ts");
+
+  assert.match(gitignore, /^build\/\*$/m);
+  assert.match(gitignore, /^!build\/sites-vite-plugin\.ts$/m);
+  assert.match(plugin, /export function sites\(\): Plugin/);
+});
