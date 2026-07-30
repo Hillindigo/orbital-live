@@ -137,3 +137,28 @@ test("provides scheduled PR-based snapshot maintenance without direct deployment
   assert.match(workflow, /gh pr create/);
   assert.doesNotMatch(workflow, /deploy:cloudflare/);
 });
+
+test("gates Cloudflare production deployment behind verification and repository credentials", async () => {
+  const workflow = await readProjectFile(
+    ".github/workflows/deploy-cloudflare.yml",
+  );
+
+  assert.match(workflow, /pull_request:[\s\S]*?branches:[\s\S]*?- main/);
+  assert.match(workflow, /push:[\s\S]*?branches:[\s\S]*?- main/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /npm run lint/);
+  assert.match(workflow, /npm run typecheck/);
+  assert.match(workflow, /npm test/);
+  assert.match(workflow, /needs: verify/);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /actions\/download-artifact@v4/);
+  assert.match(workflow, /secrets\.CLOUDFLARE_API_TOKEN/);
+  assert.match(workflow, /vars\.CLOUDFLARE_ACCOUNT_ID/);
+  assert.match(
+    workflow,
+    /npx wrangler deploy --config dist\/server\/wrangler\.json/,
+  );
+  assert.match(workflow, /Smoke-test production/);
+  assert.match(workflow, /\/api\/tle\?group=stations/);
+  assert.doesNotMatch(workflow, /1ab3dcd70862417f8f38862c2b15f894/);
+});

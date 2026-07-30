@@ -230,6 +230,24 @@ npm run verify
 
 本项目不是 GitHub Pages 纯静态站，推荐用 Cloudflare Workers 部署，因为运行时需要处理 `/api/tle` 动态接口，并托管 vinext 生成的 Worker + 静态资源。
 
+#### GitHub Actions 自动部署
+
+`.github/workflows/deploy-cloudflare.yml` 是生产部署入口：
+
+- Pull Request 指向 `main` 时只运行 lint、类型检查、构建和测试；
+- 推送到 `main` 或手动触发工作流时，质量门禁全部通过后部署 `orbital-live` Worker；
+- 部署后检查线上首页和 `/api/tle?group=stations`，冒烟测试失败会使工作流失败；
+- `cloudflare-production` 并发组禁止两个生产部署同时运行。
+
+首次启用前，需要在 GitHub 仓库中配置：
+
+1. Cloudflare Dashboard → My Profile → API Tokens，创建仅用于 CI 的 Token，至少授予目标账号的 **Workers Scripts: Edit** 权限；
+2. GitHub 仓库 → Settings → Secrets and variables → Actions → Secrets，添加 `CLOUDFLARE_API_TOKEN`；
+3. 同一页面的 Variables 中添加 `CLOUDFLARE_ACCOUNT_ID`；
+4. GitHub 仓库 → Settings → Environments，确认 `production` 环境存在；需要人工放行时可为该环境增加 required reviewers。
+
+不要将 Wrangler 本机 OAuth Token、Cloudflare Global API Key 或上述 CI Token 提交到仓库。自动部署失败时，先停止继续发布，在 Cloudflare Dashboard 的 `orbital-live` Worker → Deployments 中回滚到上一个正常版本。
+
 首次部署：
 
 ```bash
@@ -249,13 +267,15 @@ npm run deploy:cloudflare:dry-run
 npm run deploy:cloudflare
 ```
 
-后续修改代码后的部署流程：
+启用 GitHub Actions 后，后续修改代码的推荐部署流程：
 
 ```bash
-# 修改代码后
+# 本地验证后提交到 GitHub；推送 main 会自动发布
 npm run verify
-npm run deploy:cloudflare
+git push github main
 ```
+
+`npm run deploy:cloudflare` 仍保留为紧急情况下的人工部署入口。
 
 推荐先用下列命令在与线上相同的 Worker + 静态资源运行时确认页面，再停止预览并发布：
 
