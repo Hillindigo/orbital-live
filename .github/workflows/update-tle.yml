@@ -51,7 +51,9 @@ jobs:
       - name: Create or update snapshot pull request
         if: steps.changes.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Prefer a user/App token so PR workflows are not forced into approval-required state.
+          # Fall back to GITHUB_TOKEN for repositories that do not configure AUTOMATION_TOKEN.
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
         shell: bash
         run: |
           branch="automation/tle-snapshots"
@@ -73,3 +75,8 @@ jobs:
               --title "chore(data): refresh TLE snapshots" \
               --body "Automated daily CelesTrak snapshot refresh. All configured groups passed record-count, epoch-age, lint, typecheck, build, and test validation."
           fi
+
+          gh pr merge "$branch" \
+            --auto \
+            --squash \
+            --delete-branch
