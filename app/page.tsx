@@ -77,6 +77,14 @@ function formatRefreshAge(servedAt?: number) {
   return `${Math.floor(hours / 24)} 天前刷新`;
 }
 
+function getDataFreshness(epoch?: number) {
+  if (!epoch || !Number.isFinite(epoch)) return "unknown";
+  const ageHours = Math.max(0, (Date.now() - epoch) / 3_600_000);
+  if (ageHours <= 24) return "fresh";
+  if (ageHours <= 72) return "aging";
+  return "stale";
+}
+
 export default function Home() {
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
     () => new Set(ORBIT_GROUPS.map((group) => group.id)),
@@ -451,14 +459,25 @@ export default function Home() {
             const statusTitle = isSnapshot
               ? `快照 TLE 历元：${formatDataAge(groupStatus?.tleEpoch)}；${formatRefreshAge(groupStatus?.servedAt)}`
               : undefined;
+            const sourceDescription = groupStatus?.source === "live"
+              ? "CelesTrak 在线数据"
+              : groupStatus?.source === "snapshot"
+                ? "项目内置快照"
+                : "数据来源待确认";
             return (
-              <div className={`data-health-row ${groupStatus?.source ?? "loading"}`} key={group.id}>
+              <div className={`data-health-row ${groupStatus?.source ?? "loading"} ${getDataFreshness(groupStatus?.tleEpoch)}`} key={group.id} title={`${sourceDescription}；${groupStatus?.recordCount?.toLocaleString("zh-CN") ?? 0} 条记录`}>
                 <span>{group.label}</span>
                 <strong>{label}</strong>
                 <small title={statusTitle}>{statusDetail}</small>
               </div>
             );
           })}
+          <details className="data-explanation">
+            <summary>TLE 数据说明</summary>
+            <p><b>LIVE</b> 为 CelesTrak 在线数据，<b>SNAPSHOT</b> 为项目内置快照。颜色表示 TLE 历元新鲜度：绿 ≤24 小时、黄 24–72 小时、红 ＞72 小时。</p>
+            <p>页面位置、速度与轨迹由 TLE 经 SGP4 推算，并非卫星实时遥测；数据获取时间也不等于 TLE 观测历元。</p>
+            <p>国家/地区与运营方由名称规则推断，仅作辅助分类，不代表权威登记信息。</p>
+          </details>
         </section>
       </section>
 

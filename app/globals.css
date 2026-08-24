@@ -152,6 +152,14 @@ h1 em { color: #8dbfc2; font-style: normal; font-weight: 400; }
 .data-health-row.snapshot strong { color: #ffd36a; }
 .data-health-row.failed strong { color: #ff9380; }
 .data-health-row.loading strong { color: #86a5ab; }
+.data-health-row.fresh small { color: #78caa7; }
+.data-health-row.aging small { color: #d7b45d; }
+.data-health-row.stale small { color: #e48474; }
+.data-explanation { margin-top: 8px; padding-top: 7px; border-top: 1px solid rgba(152,211,218,.08); }
+.data-explanation summary { color: #688389; cursor: pointer; font: 8px "IBM Plex Mono", monospace; letter-spacing: .06em; }
+.data-explanation summary:hover, .data-explanation summary:focus-visible { color: var(--cyan); outline: 0; }
+.data-explanation p { margin: 7px 0 0; color: #526c72; font-size: 8px; line-height: 1.55; }
+.data-explanation b { color: #829da2; font-weight: 500; }
 
 .scene-message { position: absolute; z-index: 6; top: 50%; left: 50%; width: min(360px, calc(100vw - 32px)); padding: 24px; transform: translate(-50%, -50%); text-align: center; border-radius: 3px; }
 .scene-message h2 { margin: 0; font-size: 17px; font-weight: 500; }

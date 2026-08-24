@@ -183,6 +183,18 @@ test("exposes an explicit toggle for the geometric horizon footprint", async () 
   assert.match(page, /不是通信覆盖范围/);
 });
 
+test("explains data provenance, freshness, and inferred classifications", async () => {
+  const page = await readProjectFile("app/page.tsx");
+
+  assert.match(page, /getDataFreshness/);
+  assert.match(page, /recordCount/);
+  assert.match(page, /TLE 数据说明/);
+  assert.match(page, /并非卫星实时遥测/);
+  assert.match(page, /国家\/地区与运营方由名称规则推断/);
+  assert.match(page, /CelesTrak 在线数据/);
+  assert.match(page, /项目内置快照/);
+});
+
 test("allows the camera to frame the complete physical GPS orbit", () => {
   const gpsOrbitalRadius = 4.2;
 
