@@ -11,8 +11,38 @@ import {
   OVERVIEW_MAX_DISTANCE,
   getFocusCameraDistance,
 } from "../app/lib/orbit-camera.mjs";
+import {
+  addFavorite,
+  isFavorite,
+  readFavorites,
+  removeFavorite,
+} from "../app/lib/satellite-library.mjs";
 
 const projectRoot = new URL("../", import.meta.url);
+
+function createStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+test("stores favorites by NORAD ID and recovers from invalid local data", () => {
+  const storage = createStorage();
+  const iss = { norad: "25544", name: "ISS (ZARYA)", group: "stations" };
+
+  assert.deepEqual(readFavorites(storage), []);
+  assert.deepEqual(addFavorite(storage, iss, 1000), [{ ...iss, addedAt: 1000 }]);
+  assert.deepEqual(addFavorite(storage, { ...iss, name: "ISS" }, 2000), [
+    { ...iss, name: "ISS", addedAt: 1000 },
+  ]);
+  assert.equal(isFavorite(readFavorites(storage), "25544"), true);
+  assert.deepEqual(removeFavorite(storage, "25544"), []);
+
+  const invalidStorage = createStorage({ "orbital-favorites": "not-json" });
+  assert.deepEqual(readFavorites(invalidStorage), []);
+});
 
 async function readProjectFile(path) {
   return readFile(new URL(path, projectRoot), "utf8");

@@ -9,6 +9,13 @@ import {
   type SatelliteSnapshot,
 } from "./components/GlobeScene";
 import { ORBIT_GROUPS } from "./lib/orbit-groups";
+import {
+  addFavorite,
+  isFavorite,
+  readFavorites,
+  removeFavorite,
+  type FavoriteSatellite,
+} from "./lib/satellite-library.mjs";
 
 const TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1000;
 type UiLayout = { autoRotate: boolean; leftPanelVisible: boolean; detailPanelVisible: boolean };
@@ -85,6 +92,10 @@ export default function Home() {
   const [autoRotate, setAutoRotate] = useState(() => readUiLayout().autoRotate);
   const [leftPanelVisible, setLeftPanelVisible] = useState(() => readUiLayout().leftPanelVisible);
   const [detailPanelVisible, setDetailPanelVisible] = useState(() => readUiLayout().detailPanelVisible);
+  const [favorites, setFavorites] = useState<FavoriteSatellite[]>(() => (
+    typeof window === "undefined" ? [] : readFavorites(window.localStorage)
+  ));
+  const [libraryView, setLibraryView] = useState<"search" | "favorites">("search");
   const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -167,6 +178,18 @@ export default function Home() {
     () => new Map(dataStatuses.map((item) => [item.group, item])),
     [dataStatuses],
   );
+
+  const favoriteRows = useMemo(() => favorites.map((favorite) => ({
+    favorite,
+    satellite: satellites.find((satellite) => satellite.norad === favorite.norad),
+  })), [favorites, satellites]);
+
+  const toggleFavorite = (satellite: SatelliteMeta) => {
+    const storage = window.localStorage;
+    setFavorites(isFavorite(favorites, satellite.norad)
+      ? removeFavorite(storage, satellite.norad)
+      : addFavorite(storage, satellite));
+  };
 
   const toggleGroup = (group: string) => {
     setActiveGroups((current) => {
@@ -256,7 +279,11 @@ export default function Home() {
           拖动地球，选择任意光点进入跟踪。
         </p>
 
-        <div className="search-wrap">
+        <div className="library-tabs" role="tablist" aria-label="卫星资料库">
+          <button type="button" role="tab" aria-selected={libraryView === "search"} className={libraryView === "search" ? "active" : ""} onClick={() => setLibraryView("search")}>搜索</button>
+          <button type="button" role="tab" aria-selected={libraryView === "favorites"} className={libraryView === "favorites" ? "active" : ""} onClick={() => setLibraryView("favorites")}>收藏 <span>{favorites.length}</span></button>
+        </div>
+        {libraryView === "search" ? <div className="search-wrap">
           <label htmlFor="sat-search">搜索卫星</label>
           <div className="search-field">
             <span className="search-glyph" aria-hidden="true" />
@@ -297,7 +324,20 @@ export default function Home() {
               ))}
             </div>
           )}
-        </div>
+        </div> : (
+          <section className="library-list" aria-label="收藏卫星">
+            {favoriteRows.length ? favoriteRows.map(({ favorite, satellite }) => (
+              <div className="library-row" key={favorite.norad}>
+                <button type="button" onClick={() => satellite && selectFromSearch(satellite)} disabled={!satellite}>
+                  <span>{satellite?.name ?? favorite.name}</span>
+                  <small>#{favorite.norad}{satellite ? "" : " · 当前不可用"}</small>
+                </button>
+                <button type="button" className="library-remove" onClick={() => setFavorites(removeFavorite(window.localStorage, favorite.norad))} aria-label={`取消收藏 ${favorite.name}`}>×</button>
+              </div>
+            )) : <p className="library-empty">还没有收藏卫星<br /><small>选择卫星后点击星标即可收藏</small></p>}
+            <p className="storage-note">收藏仅保存在当前浏览器中</p>
+          </section>
+        )}
 
         <div className="group-list" aria-label="星座筛选">
           {ORBIT_GROUPS.map((group) => (
@@ -364,6 +404,7 @@ export default function Home() {
               <div><small>正在跟踪</small><h2>{selected.name}</h2></div>
               <div className="card-actions">
                 <span className="norad">#{selected.norad}</span>
+                <button type="button" className={isFavorite(favorites, selected.norad) ? "favorite-button active" : "favorite-button"} onClick={() => toggleFavorite(selected)} aria-label={isFavorite(favorites, selected.norad) ? `取消收藏 ${selected.name}` : `收藏 ${selected.name}`} aria-pressed={isFavorite(favorites, selected.norad)} title={isFavorite(favorites, selected.norad) ? "取消收藏" : "收藏卫星"}>{isFavorite(favorites, selected.norad) ? "★" : "☆"}</button>
                 <button type="button" onClick={() => sceneApi?.clear()} aria-label="取消追踪">×</button>
               </div>
             </div>
