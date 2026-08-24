@@ -478,6 +478,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     let frameRequestedAt = 0;
     let dataSummary = "正在加载数据";
     let dataRequestId = 0;
+    let coverageVisible = true;
 
     const readVisualPosition = (target: THREE.Vector3, index: number) => {
       return target.fromArray(renderedPositions!, index * 3);
@@ -543,7 +544,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
         point.toArray(circle, step * 3);
       }
       coverageGeometry.setAttribute("position", new THREE.BufferAttribute(circle, 3));
-      coverageLine.visible = true;
+      coverageLine.visible = coverageVisible;
     };
 
     const emitSelection = (index: number) => {
@@ -614,6 +615,10 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
     const setAutoRotate = (enabled: boolean) => {
       autoRotateEnabled = enabled;
       if (selectedIndex < 0) controls.autoRotate = enabled && !reducedMotion.matches;
+    };
+    const setCoverageVisible = (visible: boolean) => {
+      coverageVisible = visible;
+      coverageLine.visible = visible && selectedIndex >= 0;
     };
 
     const requestFrame = () => {
@@ -750,7 +755,7 @@ export function GlobeScene({ activeGroups, speed, playing, onReady, onSelect, on
       worker.postMessage({ type: "load", groups });
     };
 
-    onApi({ focus, clear, resetTime, setTime, setAutoRotate, reload: () => { void loadOrbitData(true); } });
+    onApi({ focus, clear, resetTime, setTime, setAutoRotate, setCoverageVisible, reload: () => { void loadOrbitData(true); } });
     void loadOrbitData();
 
     const pointer = new THREE.Vector2();

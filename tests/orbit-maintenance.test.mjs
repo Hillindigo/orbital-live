@@ -168,6 +168,21 @@ test("keeps every satellite group at its physical orbital radius", async () => {
   assert.doesNotMatch(scene, /visualScaleForGroup/);
 });
 
+test("exposes an explicit toggle for the geometric horizon footprint", async () => {
+  const [scene, page, orbitTypes] = await Promise.all([
+    readProjectFile("app/components/GlobeSceneImpl.tsx"),
+    readProjectFile("app/page.tsx"),
+    readProjectFile("app/lib/orbit-types.ts"),
+  ]);
+
+  assert.match(orbitTypes, /setCoverageVisible: \(visible: boolean\) => void/);
+  assert.match(scene, /const setCoverageVisible = \(visible: boolean\)/);
+  assert.match(scene, /coverageVisible/);
+  assert.match(page, /sceneApi\?\.setCoverageVisible\(coverageVisible\)/);
+  assert.match(page, /几何可见范围/);
+  assert.match(page, /不是通信覆盖范围/);
+});
+
 test("allows the camera to frame the complete physical GPS orbit", () => {
   const gpsOrbitalRadius = 4.2;
 

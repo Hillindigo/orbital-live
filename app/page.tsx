@@ -95,6 +95,7 @@ export default function Home() {
   const [sceneApi, setSceneApi] = useState<GlobeSceneApi | null>(null);
   const [timelineStart, setTimelineStart] = useState(() => Date.now() - TIMELINE_WINDOW_MS / 2);
   const [autoRotate, setAutoRotate] = useState(() => readUiLayout().autoRotate);
+  const [coverageVisible, setCoverageVisible] = useState(true);
   const [leftPanelVisible, setLeftPanelVisible] = useState(() => readUiLayout().leftPanelVisible);
   const [detailPanelVisible, setDetailPanelVisible] = useState(() => readUiLayout().detailPanelVisible);
   const [favorites, setFavorites] = useState<FavoriteSatellite[]>(() => (
@@ -118,6 +119,10 @@ export default function Home() {
   useEffect(() => {
     sceneApi?.setAutoRotate(autoRotate);
   }, [autoRotate, sceneApi]);
+
+  useEffect(() => {
+    sceneApi?.setCoverageVisible(coverageVisible);
+  }, [coverageVisible, sceneApi]);
 
   useEffect(() => {
     const handleGlobalKeys = (event: KeyboardEvent) => {
@@ -490,6 +495,12 @@ export default function Home() {
               <div><small>TLE 历元</small><strong>{selected.epochTime ? new Date(selected.epochTime).toLocaleString("zh-CN") : "未知"}</strong></div>
             </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
+            <div className="coverage-control">
+              <button type="button" onClick={() => setCoverageVisible((visible) => !visible)} aria-pressed={coverageVisible}>
+                <i><b /></i><span>几何可见范围</span>
+              </button>
+              <p>青色圆圈表示卫星到几何地平线的范围，不是通信覆盖范围；未考虑天线、频率、地形与最低仰角。</p>
+            </div>
             <p className="card-hint">位置为基于 TLE 的 SGP4 推算；白色轨迹为未来一个轨道周期。可直接从搜索结果切换目标。</p>
           </>
         ) : (

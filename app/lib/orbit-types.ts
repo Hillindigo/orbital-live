@@ -32,5 +32,6 @@ export type GlobeSceneApi = {
   resetTime: () => void;
   setTime: (time: number) => void;
   setAutoRotate: (enabled: boolean) => void;
+  setCoverageVisible: (visible: boolean) => void;
   reload: () => void;
 };
