@@ -101,28 +101,39 @@ export default function Home() {
     () => ORBIT_GROUPS.map((group) => ({ group: group.id, source: "loading" })),
   );
   const [sceneApi, setSceneApi] = useState<GlobeSceneApi | null>(null);
-  const [timelineStart, setTimelineStart] = useState(() => Date.now() - TIMELINE_WINDOW_MS / 2);
-  const [autoRotate, setAutoRotate] = useState(() => readUiLayout().autoRotate);
+  const [timelineStart, setTimelineStart] = useState(0);
+  const [autoRotate, setAutoRotate] = useState(DEFAULT_UI_LAYOUT.autoRotate);
   const [coverageVisible, setCoverageVisible] = useState(true);
-  const [leftPanelVisible, setLeftPanelVisible] = useState(() => readUiLayout().leftPanelVisible);
-  const [detailPanelVisible, setDetailPanelVisible] = useState(() => readUiLayout().detailPanelVisible);
-  const [favorites, setFavorites] = useState<FavoriteSatellite[]>(() => (
-    typeof window === "undefined" ? [] : readFavorites(window.localStorage)
-  ));
-  const [recent, setRecent] = useState<RecentSatellite[]>(() => (
-    typeof window === "undefined" ? [] : readRecent(window.localStorage)
-  ));
+  const [leftPanelVisible, setLeftPanelVisible] = useState(DEFAULT_UI_LAYOUT.leftPanelVisible);
+  const [detailPanelVisible, setDetailPanelVisible] = useState(DEFAULT_UI_LAYOUT.detailPanelVisible);
+  const [favorites, setFavorites] = useState<FavoriteSatellite[]>([]);
+  const [recent, setRecent] = useState<RecentSatellite[]>([]);
   const [libraryView, setLibraryView] = useState<"search" | "favorites" | "recent">("search");
-  const [onboardingVisible, setOnboardingVisible] = useState(() => (
-    typeof window === "undefined" || window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true"
-  ));
-  const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
+  const [onboardingVisible, setOnboardingVisible] = useState(true);
+  const [localStateRestored, setLocalStateRestored] = useState(false);
+  const detailPanelManuallyHiddenRef = useRef(!DEFAULT_UI_LAYOUT.detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    window.localStorage.setItem("orbital-ui-layout", JSON.stringify({ autoRotate, leftPanelVisible, detailPanelVisible }));
-  }, [autoRotate, detailPanelVisible, leftPanelVisible]);
+    const frame = window.requestAnimationFrame(() => {
+      const layout = readUiLayout();
+      setAutoRotate(layout.autoRotate);
+      setLeftPanelVisible(layout.leftPanelVisible);
+      setDetailPanelVisible(layout.detailPanelVisible);
+      detailPanelManuallyHiddenRef.current = !layout.detailPanelVisible;
+      setFavorites(readFavorites(window.localStorage));
+      setRecent(readRecent(window.localStorage));
+      setOnboardingVisible(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true");
+      setTimelineStart(Date.now() - TIMELINE_WINDOW_MS / 2);
+      setLocalStateRestored(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
+  useEffect(() => {
+    if (!localStateRestored) return;
+    window.localStorage.setItem("orbital-ui-layout", JSON.stringify({ autoRotate, leftPanelVisible, detailPanelVisible }));
+  }, [autoRotate, detailPanelVisible, leftPanelVisible, localStateRestored]);
 
   useEffect(() => {
     sceneApi?.setAutoRotate(autoRotate);

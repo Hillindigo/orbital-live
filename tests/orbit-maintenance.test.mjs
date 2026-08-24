@@ -195,6 +195,21 @@ test("explains data provenance, freshness, and inferred classifications", async 
   assert.match(page, /项目内置快照/);
 });
 
+test("keeps the first client render identical to server HTML before restoring local state", async () => {
+  const page = await readProjectFile("app/page.tsx");
+
+  assert.match(page, /const \[timelineStart, setTimelineStart\] = useState\(0\)/);
+  assert.match(page, /const \[favorites, setFavorites\] = useState<FavoriteSatellite\[]>\(\[\]\)/);
+  assert.match(page, /const \[recent, setRecent\] = useState<RecentSatellite\[]>\(\[\]\)/);
+  assert.match(page, /const \[onboardingVisible, setOnboardingVisible\] = useState\(true\)/);
+  assert.match(page, /window\.requestAnimationFrame/);
+  assert.match(page, /setFavorites\(readFavorites\(window\.localStorage\)\)/);
+  assert.match(page, /setOnboardingVisible\(window\.localStorage\.getItem\(ONBOARDING_STORAGE_KEY\) !== "true"\)/);
+  assert.doesNotMatch(page, /useState\(\(\) => readUiLayout\(\)/);
+  assert.doesNotMatch(page, /useState<FavoriteSatellite\[]>\(\(\) =>/);
+  assert.doesNotMatch(page, /useState<RecentSatellite\[]>\(\(\) =>/);
+});
+
 test("allows the camera to frame the complete physical GPS orbit", () => {
   const gpsOrbitalRadius = 4.2;
 
