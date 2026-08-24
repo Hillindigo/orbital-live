@@ -61,6 +61,22 @@ button { color: inherit; }
 .utc-clock { justify-self: end; display: flex; align-items: baseline; gap: 14px; font-family: "IBM Plex Mono", monospace; }
 .utc-clock span { color: #728f94; font-size: 9px; text-transform: uppercase; }
 .utc-clock strong { font-size: 17px; font-weight: 400; letter-spacing: .04em; }
+.help-button { width: 24px; height: 24px; padding: 0; border: 1px solid rgba(112,232,240,.22); background: rgba(2,12,15,.45); color: #779399; cursor: pointer; font: 11px "IBM Plex Mono", monospace; }
+.help-button:hover, .help-button:focus-visible { color: var(--cyan); border-color: rgba(112,232,240,.6); outline: 0; }
+
+.onboarding-backdrop { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(0,7,10,.66); backdrop-filter: blur(6px); }
+.onboarding-panel { width: min(560px, calc(100vw - 32px)); padding: 30px; border-radius: 3px; }
+.onboarding-panel h2 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+.onboarding-steps { display: grid; gap: 10px; margin: 24px 0 20px; }
+.onboarding-steps article { display: grid; grid-template-columns: 34px 1fr; gap: 13px; padding: 13px; border: 1px solid rgba(152,211,218,.1); background: rgba(2,12,15,.35); }
+.onboarding-steps article > span { color: var(--cyan); font: 9px "IBM Plex Mono", monospace; }
+.onboarding-steps strong { display: block; color: #d8edef; font-size: 12px; font-weight: 500; }
+.onboarding-steps p { margin: 4px 0 0; color: #779399; font-size: 10px; line-height: 1.55; }
+.onboarding-demos { display: flex; gap: 8px; }
+.onboarding-demos button, .onboarding-close { height: 34px; padding: 0 13px; border: 1px solid rgba(112,232,240,.28); background: rgba(112,232,240,.06); color: #9bc4c7; cursor: pointer; font-size: 10px; }
+.onboarding-demos button:hover, .onboarding-demos button:focus-visible, .onboarding-close:hover, .onboarding-close:focus-visible { color: var(--cyan); border-color: var(--cyan); outline: 0; background: rgba(112,232,240,.12); }
+.onboarding-demos button:disabled { color: #506a70; border-color: rgba(112,232,240,.1); cursor: wait; }
+.onboarding-close { display: block; width: 100%; margin-top: 10px; color: #d8edef; }
 
 .mission-panel { position: absolute; z-index: 4; top: 104px; left: 34px; width: 342px; padding: 26px 26px 20px; border-radius: 2px; transition: opacity .28s ease, transform .28s ease; }
 .mission-panel.panel-hidden { opacity: 0; pointer-events: none; transform: translateX(calc(-100% - 38px)); }
@@ -252,6 +268,8 @@ footer span:last-child { margin-left: auto; }
   .mission-panel h1 { font-size: 26px; }
   .mission-panel .eyebrow { font-size: 8px; }
   .satellite-card { left: 12px; right: 12px; width: auto; }
+  .onboarding-panel { padding: 22px 18px; }
+  .onboarding-panel h2 { font-size: 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -22,6 +22,7 @@ import {
 } from "./lib/satellite-library.mjs";
 
 const TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1000;
+const ONBOARDING_STORAGE_KEY = "orbital-onboarding-complete";
 type UiLayout = { autoRotate: boolean; leftPanelVisible: boolean; detailPanelVisible: boolean };
 const DEFAULT_UI_LAYOUT: UiLayout = { autoRotate: true, leftPanelVisible: true, detailPanelVisible: true };
 
@@ -103,12 +104,16 @@ export default function Home() {
     typeof window === "undefined" ? [] : readRecent(window.localStorage)
   ));
   const [libraryView, setLibraryView] = useState<"search" | "favorites" | "recent">("search");
+  const [onboardingVisible, setOnboardingVisible] = useState(() => (
+    typeof window === "undefined" || window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true"
+  ));
   const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     window.localStorage.setItem("orbital-ui-layout", JSON.stringify({ autoRotate, leftPanelVisible, detailPanelVisible }));
   }, [autoRotate, detailPanelVisible, leftPanelVisible]);
+
 
   useEffect(() => {
     sceneApi?.setAutoRotate(autoRotate);
@@ -218,6 +223,23 @@ export default function Home() {
     }
   };
 
+  const closeOnboarding = () => {
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
+    setOnboardingVisible(false);
+  };
+
+  const startDemo = (kind: "iss" | "gps") => {
+    if (kind === "gps") {
+      setActiveGroups(new Set(["gps-ops"]));
+      closeOnboarding();
+      return;
+    }
+    const target = satellites.find((satellite) => satellite.norad === "25544")
+      ?? satellites.find((satellite) => satellite.name.toLowerCase().includes("iss"));
+    if (target) selectFromSearch(target);
+    closeOnboarding();
+  };
+
   const setTimelineTime = (time: number) => {
     if (time < timelineStart || time > timelineEnd) {
       setTimelineStart(time - TIMELINE_WINDOW_MS / 2);
@@ -282,8 +304,28 @@ export default function Home() {
         <div className="utc-clock">
           <span>{clock ? formatDate(clock) : "正在同步时间"}</span>
           <strong>{clock ? formatClock(clock) : "--:--:--"}</strong>
+          <button type="button" className="help-button" onClick={() => setOnboardingVisible(true)} aria-label="打开使用引导" title="使用引导">?</button>
         </div>
       </header>
+
+      {onboardingVisible && (
+        <section className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+          <div className="onboarding-panel glass-panel">
+            <p className="eyebrow">欢迎进入轨道视图</p>
+            <h2 id="onboarding-title">三步认识 ORBITAL/LIVE</h2>
+            <div className="onboarding-steps">
+              <article><span>01</span><div><strong>拖动与缩放</strong><p>拖动地球改变视角，滚轮缩放轨道尺度。</p></div></article>
+              <article><span>02</span><div><strong>点击卫星</strong><p>选择任意光点，查看遥测与未来轨道。</p></div></article>
+              <article><span>03</span><div><strong>搜索与时间</strong><p>按名称或 NORAD ID 搜索，使用底部时间轴模拟。</p></div></article>
+            </div>
+            <div className="onboarding-demos">
+              <button type="button" onClick={() => startDemo("iss")} disabled={!satellites.length}>跟踪 ISS</button>
+              <button type="button" onClick={() => startDemo("gps")} disabled={!satellites.length}>浏览 GPS</button>
+            </div>
+            <button type="button" className="onboarding-close" onClick={closeOnboarding}>开始探索</button>
+          </div>
+        </section>
+      )}
 
       <section className={leftPanelVisible ? "mission-panel glass-panel" : "mission-panel glass-panel panel-hidden"} aria-label="轨道控制">
         <p className="eyebrow">低地球轨道 · TLE 轨道推算</p>

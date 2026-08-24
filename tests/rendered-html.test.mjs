@@ -50,6 +50,12 @@ test("server-renders the Orbital Live application shell", async () => {
   assert.match(html, /空间站/);
   assert.match(html, /正在加载三维地球/);
   assert.match(html, /SGP4 本地推算/);
+  assert.match(html, /三步认识 ORBITAL\/LIVE/);
+  assert.match(html, /拖动与缩放/);
+  assert.match(html, /点击卫星/);
+  assert.match(html, /搜索与时间/);
+  assert.match(html, /跟踪 ISS/);
+  assert.match(html, /浏览 GPS/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project/);
 });
 
