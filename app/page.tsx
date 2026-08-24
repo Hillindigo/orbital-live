@@ -9,8 +9,20 @@ import {
   type SatelliteSnapshot,
 } from "./components/GlobeScene";
 import { ORBIT_GROUPS } from "./lib/orbit-groups";
+import {
+  addFavorite,
+  addRecent,
+  clearRecent,
+  isFavorite,
+  readFavorites,
+  readRecent,
+  removeFavorite,
+  type FavoriteSatellite,
+  type RecentSatellite,
+} from "./lib/satellite-library.mjs";
 
 const TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1000;
+const ONBOARDING_STORAGE_KEY = "orbital-onboarding-complete";
 type UiLayout = { autoRotate: boolean; leftPanelVisible: boolean; detailPanelVisible: boolean };
 const DEFAULT_UI_LAYOUT: UiLayout = { autoRotate: true, leftPanelVisible: true, detailPanelVisible: true };
 
@@ -65,6 +77,14 @@ function formatRefreshAge(servedAt?: number) {
   return `${Math.floor(hours / 24)} 天前刷新`;
 }
 
+function getDataFreshness(epoch?: number) {
+  if (!epoch || !Number.isFinite(epoch)) return "unknown";
+  const ageHours = Math.max(0, (Date.now() - epoch) / 3_600_000);
+  if (ageHours <= 24) return "fresh";
+  if (ageHours <= 72) return "aging";
+  return "stale";
+}
+
 export default function Home() {
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
     () => new Set(ORBIT_GROUPS.map((group) => group.id)),
@@ -81,20 +101,47 @@ export default function Home() {
     () => ORBIT_GROUPS.map((group) => ({ group: group.id, source: "loading" })),
   );
   const [sceneApi, setSceneApi] = useState<GlobeSceneApi | null>(null);
-  const [timelineStart, setTimelineStart] = useState(() => Date.now() - TIMELINE_WINDOW_MS / 2);
-  const [autoRotate, setAutoRotate] = useState(() => readUiLayout().autoRotate);
-  const [leftPanelVisible, setLeftPanelVisible] = useState(() => readUiLayout().leftPanelVisible);
-  const [detailPanelVisible, setDetailPanelVisible] = useState(() => readUiLayout().detailPanelVisible);
-  const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
+  const [timelineStart, setTimelineStart] = useState(0);
+  const [autoRotate, setAutoRotate] = useState(DEFAULT_UI_LAYOUT.autoRotate);
+  const [coverageVisible, setCoverageVisible] = useState(true);
+  const [leftPanelVisible, setLeftPanelVisible] = useState(DEFAULT_UI_LAYOUT.leftPanelVisible);
+  const [detailPanelVisible, setDetailPanelVisible] = useState(DEFAULT_UI_LAYOUT.detailPanelVisible);
+  const [favorites, setFavorites] = useState<FavoriteSatellite[]>([]);
+  const [recent, setRecent] = useState<RecentSatellite[]>([]);
+  const [libraryView, setLibraryView] = useState<"search" | "favorites" | "recent">("search");
+  const [onboardingVisible, setOnboardingVisible] = useState(true);
+  const [localStateRestored, setLocalStateRestored] = useState(false);
+  const detailPanelManuallyHiddenRef = useRef(!DEFAULT_UI_LAYOUT.detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const layout = readUiLayout();
+      setAutoRotate(layout.autoRotate);
+      setLeftPanelVisible(layout.leftPanelVisible);
+      setDetailPanelVisible(layout.detailPanelVisible);
+      detailPanelManuallyHiddenRef.current = !layout.detailPanelVisible;
+      setFavorites(readFavorites(window.localStorage));
+      setRecent(readRecent(window.localStorage));
+      setOnboardingVisible(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "true");
+      setTimelineStart(Date.now() - TIMELINE_WINDOW_MS / 2);
+      setLocalStateRestored(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    if (!localStateRestored) return;
     window.localStorage.setItem("orbital-ui-layout", JSON.stringify({ autoRotate, leftPanelVisible, detailPanelVisible }));
-  }, [autoRotate, detailPanelVisible, leftPanelVisible]);
+  }, [autoRotate, detailPanelVisible, leftPanelVisible, localStateRestored]);
 
   useEffect(() => {
     sceneApi?.setAutoRotate(autoRotate);
   }, [autoRotate, sceneApi]);
+
+  useEffect(() => {
+    sceneApi?.setCoverageVisible(coverageVisible);
+  }, [coverageVisible, sceneApi]);
 
   useEffect(() => {
     const handleGlobalKeys = (event: KeyboardEvent) => {
@@ -168,6 +215,22 @@ export default function Home() {
     [dataStatuses],
   );
 
+  const favoriteRows = useMemo(() => favorites.map((favorite) => ({
+    favorite,
+    satellite: satellites.find((satellite) => satellite.norad === favorite.norad),
+  })), [favorites, satellites]);
+  const recentRows = useMemo(() => recent.map((item) => ({
+    item,
+    satellite: satellites.find((satellite) => satellite.norad === item.norad),
+  })), [recent, satellites]);
+
+  const toggleFavorite = (satellite: SatelliteMeta) => {
+    const storage = window.localStorage;
+    setFavorites(isFavorite(favorites, satellite.norad)
+      ? removeFavorite(storage, satellite.norad)
+      : addFavorite(storage, satellite));
+  };
+
   const toggleGroup = (group: string) => {
     setActiveGroups((current) => {
       const next = new Set(current);
@@ -182,6 +245,23 @@ export default function Home() {
       setQuery("");
       setSearchIndex(0);
     }
+  };
+
+  const closeOnboarding = () => {
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
+    setOnboardingVisible(false);
+  };
+
+  const startDemo = (kind: "iss" | "gps") => {
+    if (kind === "gps") {
+      setActiveGroups(new Set(["gps-ops"]));
+      closeOnboarding();
+      return;
+    }
+    const target = satellites.find((satellite) => satellite.norad === "25544")
+      ?? satellites.find((satellite) => satellite.name.toLowerCase().includes("iss"));
+    if (target) selectFromSearch(target);
+    closeOnboarding();
   };
 
   const setTimelineTime = (time: number) => {
@@ -213,7 +293,10 @@ export default function Home() {
   const dataUnavailable = status === "轨道数据暂不可用";
   const handleSatelliteSelect = useCallback((satellite: SatelliteSnapshot | null) => {
     setSelected(satellite);
-    if (satellite && !detailPanelManuallyHiddenRef.current) setDetailPanelVisible(true);
+    if (satellite) {
+      setRecent(addRecent(window.localStorage, satellite));
+      if (!detailPanelManuallyHiddenRef.current) setDetailPanelVisible(true);
+    }
   }, []);
 
   return (
@@ -245,8 +328,28 @@ export default function Home() {
         <div className="utc-clock">
           <span>{clock ? formatDate(clock) : "正在同步时间"}</span>
           <strong>{clock ? formatClock(clock) : "--:--:--"}</strong>
+          <button type="button" className="help-button" onClick={() => setOnboardingVisible(true)} aria-label="打开使用引导" title="使用引导">?</button>
         </div>
       </header>
+
+      {onboardingVisible && (
+        <section className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+          <div className="onboarding-panel glass-panel">
+            <p className="eyebrow">欢迎进入轨道视图</p>
+            <h2 id="onboarding-title">三步认识 ORBITAL/LIVE</h2>
+            <div className="onboarding-steps">
+              <article><span>01</span><div><strong>拖动与缩放</strong><p>拖动地球改变视角，滚轮缩放轨道尺度。</p></div></article>
+              <article><span>02</span><div><strong>点击卫星</strong><p>选择任意光点，查看遥测与未来轨道。</p></div></article>
+              <article><span>03</span><div><strong>搜索与时间</strong><p>按名称或 NORAD ID 搜索，使用底部时间轴模拟。</p></div></article>
+            </div>
+            <div className="onboarding-demos">
+              <button type="button" onClick={() => startDemo("iss")} disabled={!satellites.length}>跟踪 ISS</button>
+              <button type="button" onClick={() => startDemo("gps")} disabled={!satellites.length}>浏览 GPS</button>
+            </div>
+            <button type="button" className="onboarding-close" onClick={closeOnboarding}>开始探索</button>
+          </div>
+        </section>
+      )}
 
       <section className={leftPanelVisible ? "mission-panel glass-panel" : "mission-panel glass-panel panel-hidden"} aria-label="轨道控制">
         <p className="eyebrow">低地球轨道 · TLE 轨道推算</p>
@@ -256,7 +359,12 @@ export default function Home() {
           拖动地球，选择任意光点进入跟踪。
         </p>
 
-        <div className="search-wrap">
+        <div className="library-tabs" role="tablist" aria-label="卫星资料库">
+          <button type="button" role="tab" aria-selected={libraryView === "search"} className={libraryView === "search" ? "active" : ""} onClick={() => setLibraryView("search")}>搜索</button>
+          <button type="button" role="tab" aria-selected={libraryView === "favorites"} className={libraryView === "favorites" ? "active" : ""} onClick={() => setLibraryView("favorites")}>收藏 <span>{favorites.length}</span></button>
+          <button type="button" role="tab" aria-selected={libraryView === "recent"} className={libraryView === "recent" ? "active" : ""} onClick={() => setLibraryView("recent")}>最近</button>
+        </div>
+        {libraryView === "search" ? <div className="search-wrap">
           <label htmlFor="sat-search">搜索卫星</label>
           <div className="search-field">
             <span className="search-glyph" aria-hidden="true" />
@@ -297,7 +405,32 @@ export default function Home() {
               ))}
             </div>
           )}
-        </div>
+        </div> : libraryView === "favorites" ? (
+          <section className="library-list" aria-label="收藏卫星">
+            {favoriteRows.length ? favoriteRows.map(({ favorite, satellite }) => (
+              <div className="library-row" key={favorite.norad}>
+                <button type="button" onClick={() => satellite && selectFromSearch(satellite)} disabled={!satellite}>
+                  <span>{satellite?.name ?? favorite.name}</span>
+                  <small>#{favorite.norad}{satellite ? "" : " · 当前不可用"}</small>
+                </button>
+                <button type="button" className="library-remove" onClick={() => setFavorites(removeFavorite(window.localStorage, favorite.norad))} aria-label={`取消收藏 ${favorite.name}`}>×</button>
+              </div>
+            )) : <p className="library-empty">还没有收藏卫星<br /><small>选择卫星后点击星标即可收藏</small></p>}
+            <p className="storage-note">收藏仅保存在当前浏览器中</p>
+          </section>
+        ) : (
+          <section className="library-list" aria-label="最近查看">
+            {recentRows.length ? recentRows.map(({ item, satellite }) => (
+              <div className="library-row recent-row" key={item.norad}>
+                <button type="button" onClick={() => satellite && selectFromSearch(satellite)} disabled={!satellite}>
+                  <span>{satellite?.name ?? item.name}</span>
+                  <small>#{item.norad}{satellite ? "" : " · 当前不可用"}</small>
+                </button>
+              </div>
+            )) : <p className="library-empty">还没有查看记录<br /><small>点击或搜索选择卫星后会自动记录</small></p>}
+            {recentRows.length > 0 && <button type="button" className="library-clear" onClick={() => setRecent(clearRecent(window.localStorage))}>清空最近查看</button>}
+          </section>
+        )}
 
         <div className="group-list" aria-label="星座筛选">
           {ORBIT_GROUPS.map((group) => (
@@ -337,14 +470,25 @@ export default function Home() {
             const statusTitle = isSnapshot
               ? `快照 TLE 历元：${formatDataAge(groupStatus?.tleEpoch)}；${formatRefreshAge(groupStatus?.servedAt)}`
               : undefined;
+            const sourceDescription = groupStatus?.source === "live"
+              ? "CelesTrak 在线数据"
+              : groupStatus?.source === "snapshot"
+                ? "项目内置快照"
+                : "数据来源待确认";
             return (
-              <div className={`data-health-row ${groupStatus?.source ?? "loading"}`} key={group.id}>
+              <div className={`data-health-row ${groupStatus?.source ?? "loading"} ${getDataFreshness(groupStatus?.tleEpoch)}`} key={group.id} title={`${sourceDescription}；${groupStatus?.recordCount?.toLocaleString("zh-CN") ?? 0} 条记录`}>
                 <span>{group.label}</span>
                 <strong>{label}</strong>
                 <small title={statusTitle}>{statusDetail}</small>
               </div>
             );
           })}
+          <details className="data-explanation">
+            <summary>TLE 数据说明</summary>
+            <p><b>LIVE</b> 为 CelesTrak 在线数据，<b>SNAPSHOT</b> 为项目内置快照。颜色表示 TLE 历元新鲜度：绿 ≤24 小时、黄 24–72 小时、红 ＞72 小时。</p>
+            <p>页面位置、速度与轨迹由 TLE 经 SGP4 推算，并非卫星实时遥测；数据获取时间也不等于 TLE 观测历元。</p>
+            <p>国家/地区与运营方由名称规则推断，仅作辅助分类，不代表权威登记信息。</p>
+          </details>
         </section>
       </section>
 
@@ -364,6 +508,7 @@ export default function Home() {
               <div><small>正在跟踪</small><h2>{selected.name}</h2></div>
               <div className="card-actions">
                 <span className="norad">#{selected.norad}</span>
+                <button type="button" className={isFavorite(favorites, selected.norad) ? "favorite-button active" : "favorite-button"} onClick={() => toggleFavorite(selected)} aria-label={isFavorite(favorites, selected.norad) ? `取消收藏 ${selected.name}` : `收藏 ${selected.name}`} aria-pressed={isFavorite(favorites, selected.norad)} title={isFavorite(favorites, selected.norad) ? "取消收藏" : "收藏卫星"}>{isFavorite(favorites, selected.norad) ? "★" : "☆"}</button>
                 <button type="button" onClick={() => sceneApi?.clear()} aria-label="取消追踪">×</button>
               </div>
             </div>
@@ -380,6 +525,12 @@ export default function Home() {
               <div><small>TLE 历元</small><strong>{selected.epochTime ? new Date(selected.epochTime).toLocaleString("zh-CN") : "未知"}</strong></div>
             </div>
             <div className="pass-bar"><span>轨道周期</span><b>{selected.period.toFixed(1)} 分钟</b></div>
+            <div className="coverage-control">
+              <button type="button" onClick={() => setCoverageVisible((visible) => !visible)} aria-pressed={coverageVisible}>
+                <i><b /></i><span>几何可见范围</span>
+              </button>
+              <p>青色圆圈表示卫星到几何地平线的范围，不是通信覆盖范围；未考虑天线、频率、地形与最低仰角。</p>
+            </div>
             <p className="card-hint">位置为基于 TLE 的 SGP4 推算；白色轨迹为未来一个轨道周期。可直接从搜索结果切换目标。</p>
           </>
         ) : (

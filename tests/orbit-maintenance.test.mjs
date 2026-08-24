@@ -11,8 +11,60 @@ import {
   OVERVIEW_MAX_DISTANCE,
   getFocusCameraDistance,
 } from "../app/lib/orbit-camera.mjs";
+import {
+  addFavorite,
+  addRecent,
+  clearRecent,
+  readRecent,
+  isFavorite,
+  readFavorites,
+  removeFavorite,
+} from "../app/lib/satellite-library.mjs";
 
 const projectRoot = new URL("../", import.meta.url);
+
+function createStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+test("stores favorites by NORAD ID and recovers from invalid local data", () => {
+  const storage = createStorage();
+  const iss = { norad: "25544", name: "ISS (ZARYA)", group: "stations" };
+
+  assert.deepEqual(readFavorites(storage), []);
+  assert.deepEqual(addFavorite(storage, iss, 1000), [{ ...iss, addedAt: 1000 }]);
+  assert.deepEqual(addFavorite(storage, { ...iss, name: "ISS" }, 2000), [
+    { ...iss, name: "ISS", addedAt: 1000 },
+  ]);
+  assert.equal(isFavorite(readFavorites(storage), "25544"), true);
+  assert.deepEqual(removeFavorite(storage, "25544"), []);
+
+  const invalidStorage = createStorage({ "orbital-favorites": "not-json" });
+  assert.deepEqual(readFavorites(invalidStorage), []);
+});
+
+test("keeps a deduplicated most-recently-viewed list with a fixed limit", () => {
+  const storage = createStorage();
+
+  for (let index = 0; index < 17; index += 1) {
+    addRecent(storage, {
+      norad: String(10000 + index),
+      name: `SAT ${index}`,
+      group: "starlink",
+    }, index);
+  }
+  assert.equal(readRecent(storage).length, 15);
+  assert.equal(readRecent(storage)[0].norad, "10016");
+
+  addRecent(storage, { norad: "10010", name: "RENAMED", group: "starlink" }, 100);
+  assert.equal(readRecent(storage)[0].name, "RENAMED");
+  assert.equal(readRecent(storage).filter((item) => item.norad === "10010").length, 1);
+  assert.deepEqual(clearRecent(storage), []);
+});
 
 async function readProjectFile(path) {
   return readFile(new URL(path, projectRoot), "utf8");
@@ -114,6 +166,48 @@ test("keeps every satellite group at its physical orbital radius", async () => {
 
   assert.doesNotMatch(scene, /GPS_OVERVIEW_SCALE/);
   assert.doesNotMatch(scene, /visualScaleForGroup/);
+});
+
+test("exposes an explicit toggle for the geometric horizon footprint", async () => {
+  const [scene, page, orbitTypes] = await Promise.all([
+    readProjectFile("app/components/GlobeSceneImpl.tsx"),
+    readProjectFile("app/page.tsx"),
+    readProjectFile("app/lib/orbit-types.ts"),
+  ]);
+
+  assert.match(orbitTypes, /setCoverageVisible: \(visible: boolean\) => void/);
+  assert.match(scene, /const setCoverageVisible = \(visible: boolean\)/);
+  assert.match(scene, /coverageVisible/);
+  assert.match(page, /sceneApi\?\.setCoverageVisible\(coverageVisible\)/);
+  assert.match(page, /几何可见范围/);
+  assert.match(page, /不是通信覆盖范围/);
+});
+
+test("explains data provenance, freshness, and inferred classifications", async () => {
+  const page = await readProjectFile("app/page.tsx");
+
+  assert.match(page, /getDataFreshness/);
+  assert.match(page, /recordCount/);
+  assert.match(page, /TLE 数据说明/);
+  assert.match(page, /并非卫星实时遥测/);
+  assert.match(page, /国家\/地区与运营方由名称规则推断/);
+  assert.match(page, /CelesTrak 在线数据/);
+  assert.match(page, /项目内置快照/);
+});
+
+test("keeps the first client render identical to server HTML before restoring local state", async () => {
+  const page = await readProjectFile("app/page.tsx");
+
+  assert.match(page, /const \[timelineStart, setTimelineStart\] = useState\(0\)/);
+  assert.match(page, /const \[favorites, setFavorites\] = useState<FavoriteSatellite\[]>\(\[\]\)/);
+  assert.match(page, /const \[recent, setRecent\] = useState<RecentSatellite\[]>\(\[\]\)/);
+  assert.match(page, /const \[onboardingVisible, setOnboardingVisible\] = useState\(true\)/);
+  assert.match(page, /window\.requestAnimationFrame/);
+  assert.match(page, /setFavorites\(readFavorites\(window\.localStorage\)\)/);
+  assert.match(page, /setOnboardingVisible\(window\.localStorage\.getItem\(ONBOARDING_STORAGE_KEY\) !== "true"\)/);
+  assert.doesNotMatch(page, /useState\(\(\) => readUiLayout\(\)/);
+  assert.doesNotMatch(page, /useState<FavoriteSatellite\[]>\(\(\) =>/);
+  assert.doesNotMatch(page, /useState<RecentSatellite\[]>\(\(\) =>/);
 });
 
 test("allows the camera to frame the complete physical GPS orbit", () => {
