@@ -13,6 +13,9 @@ import {
 } from "../app/lib/orbit-camera.mjs";
 import {
   addFavorite,
+  addRecent,
+  clearRecent,
+  readRecent,
   isFavorite,
   readFavorites,
   removeFavorite,
@@ -42,6 +45,25 @@ test("stores favorites by NORAD ID and recovers from invalid local data", () => 
 
   const invalidStorage = createStorage({ "orbital-favorites": "not-json" });
   assert.deepEqual(readFavorites(invalidStorage), []);
+});
+
+test("keeps a deduplicated most-recently-viewed list with a fixed limit", () => {
+  const storage = createStorage();
+
+  for (let index = 0; index < 17; index += 1) {
+    addRecent(storage, {
+      norad: String(10000 + index),
+      name: `SAT ${index}`,
+      group: "starlink",
+    }, index);
+  }
+  assert.equal(readRecent(storage).length, 15);
+  assert.equal(readRecent(storage)[0].norad, "10016");
+
+  addRecent(storage, { norad: "10010", name: "RENAMED", group: "starlink" }, 100);
+  assert.equal(readRecent(storage)[0].name, "RENAMED");
+  assert.equal(readRecent(storage).filter((item) => item.norad === "10010").length, 1);
+  assert.deepEqual(clearRecent(storage), []);
 });
 
 async function readProjectFile(path) {

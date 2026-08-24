@@ -1,4 +1,6 @@
 export const FAVORITES_STORAGE_KEY = "orbital-favorites";
+export const RECENT_STORAGE_KEY = "orbital-recent";
+const RECENT_LIMIT = 15;
 
 function normalizeSatellite(satellite) {
   if (!satellite || typeof satellite !== "object") return null;
@@ -52,4 +54,26 @@ export function removeFavorite(storage, norad) {
     FAVORITES_STORAGE_KEY,
     readFavorites(storage).filter((item) => item.norad !== norad),
   );
+}
+
+export function readRecent(storage) {
+  return parseItems(storage, RECENT_STORAGE_KEY).flatMap((item) => {
+    const satellite = normalizeSatellite(item);
+    if (!satellite || typeof item.viewedAt !== "number") return [];
+    return [{ ...satellite, viewedAt: item.viewedAt }];
+  }).slice(0, RECENT_LIMIT);
+}
+
+export function addRecent(storage, satellite, viewedAt = Date.now()) {
+  const normalized = normalizeSatellite(satellite);
+  if (!normalized) return readRecent(storage);
+  const next = [
+    { ...normalized, viewedAt },
+    ...readRecent(storage).filter((item) => item.norad !== normalized.norad),
+  ].slice(0, RECENT_LIMIT);
+  return writeItems(storage, RECENT_STORAGE_KEY, next);
+}
+
+export function clearRecent(storage) {
+  return writeItems(storage, RECENT_STORAGE_KEY, []);
 }

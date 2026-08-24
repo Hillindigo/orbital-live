@@ -11,10 +11,14 @@ import {
 import { ORBIT_GROUPS } from "./lib/orbit-groups";
 import {
   addFavorite,
+  addRecent,
+  clearRecent,
   isFavorite,
   readFavorites,
+  readRecent,
   removeFavorite,
   type FavoriteSatellite,
+  type RecentSatellite,
 } from "./lib/satellite-library.mjs";
 
 const TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -95,7 +99,10 @@ export default function Home() {
   const [favorites, setFavorites] = useState<FavoriteSatellite[]>(() => (
     typeof window === "undefined" ? [] : readFavorites(window.localStorage)
   ));
-  const [libraryView, setLibraryView] = useState<"search" | "favorites">("search");
+  const [recent, setRecent] = useState<RecentSatellite[]>(() => (
+    typeof window === "undefined" ? [] : readRecent(window.localStorage)
+  ));
+  const [libraryView, setLibraryView] = useState<"search" | "favorites" | "recent">("search");
   const detailPanelManuallyHiddenRef = useRef(!readUiLayout().detailPanelVisible);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -183,6 +190,10 @@ export default function Home() {
     favorite,
     satellite: satellites.find((satellite) => satellite.norad === favorite.norad),
   })), [favorites, satellites]);
+  const recentRows = useMemo(() => recent.map((item) => ({
+    item,
+    satellite: satellites.find((satellite) => satellite.norad === item.norad),
+  })), [recent, satellites]);
 
   const toggleFavorite = (satellite: SatelliteMeta) => {
     const storage = window.localStorage;
@@ -236,7 +247,10 @@ export default function Home() {
   const dataUnavailable = status === "轨道数据暂不可用";
   const handleSatelliteSelect = useCallback((satellite: SatelliteSnapshot | null) => {
     setSelected(satellite);
-    if (satellite && !detailPanelManuallyHiddenRef.current) setDetailPanelVisible(true);
+    if (satellite) {
+      setRecent(addRecent(window.localStorage, satellite));
+      if (!detailPanelManuallyHiddenRef.current) setDetailPanelVisible(true);
+    }
   }, []);
 
   return (
@@ -282,6 +296,7 @@ export default function Home() {
         <div className="library-tabs" role="tablist" aria-label="卫星资料库">
           <button type="button" role="tab" aria-selected={libraryView === "search"} className={libraryView === "search" ? "active" : ""} onClick={() => setLibraryView("search")}>搜索</button>
           <button type="button" role="tab" aria-selected={libraryView === "favorites"} className={libraryView === "favorites" ? "active" : ""} onClick={() => setLibraryView("favorites")}>收藏 <span>{favorites.length}</span></button>
+          <button type="button" role="tab" aria-selected={libraryView === "recent"} className={libraryView === "recent" ? "active" : ""} onClick={() => setLibraryView("recent")}>最近</button>
         </div>
         {libraryView === "search" ? <div className="search-wrap">
           <label htmlFor="sat-search">搜索卫星</label>
@@ -324,7 +339,7 @@ export default function Home() {
               ))}
             </div>
           )}
-        </div> : (
+        </div> : libraryView === "favorites" ? (
           <section className="library-list" aria-label="收藏卫星">
             {favoriteRows.length ? favoriteRows.map(({ favorite, satellite }) => (
               <div className="library-row" key={favorite.norad}>
@@ -336,6 +351,18 @@ export default function Home() {
               </div>
             )) : <p className="library-empty">还没有收藏卫星<br /><small>选择卫星后点击星标即可收藏</small></p>}
             <p className="storage-note">收藏仅保存在当前浏览器中</p>
+          </section>
+        ) : (
+          <section className="library-list" aria-label="最近查看">
+            {recentRows.length ? recentRows.map(({ item, satellite }) => (
+              <div className="library-row recent-row" key={item.norad}>
+                <button type="button" onClick={() => satellite && selectFromSearch(satellite)} disabled={!satellite}>
+                  <span>{satellite?.name ?? item.name}</span>
+                  <small>#{item.norad}{satellite ? "" : " · 当前不可用"}</small>
+                </button>
+              </div>
+            )) : <p className="library-empty">还没有查看记录<br /><small>点击或搜索选择卫星后会自动记录</small></p>}
+            {recentRows.length > 0 && <button type="button" className="library-clear" onClick={() => setRecent(clearRecent(window.localStorage))}>清空最近查看</button>}
           </section>
         )}
 
