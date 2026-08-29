@@ -63,6 +63,114 @@ test("downloads and validates every configured CelesTrak group before writing", 
   assert.equal(maximumActiveRequests, 1);
 });
 
+test("retries temporary upstream failures before accepting a snapshot", async () => {
+  const statuses = [500, 503, 200];
+  const delays = [];
+  const warnings = [];
+
+  const updates = await downloadSnapshotUpdates({
+    definitions: [definition],
+    now: stationsMetadata.newestEpoch + 60 * 60 * 1000,
+    maxAttempts: 3,
+    retryBaseDelayMs: 100,
+    sleepImpl: async (delay) => delays.push(delay),
+    logger: { warn: (message) => warnings.push(message) },
+    fetchImpl: async () => {
+      const status = statuses.shift();
+      return new Response(status === 200 ? stationsSnapshot : "temporary failure", {
+        status,
+      });
+    },
+  });
+
+  assert.equal(updates.length, 1);
+  assert.deepEqual(delays, [100, 200]);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /HTTP 500.*attempt 1\/3.*retrying in 100ms/i);
+  assert.match(warnings[1], /HTTP 503.*attempt 2\/3.*retrying in 200ms/i);
+});
+
+test("retries when reading a successful response body times out", async () => {
+  let attempts = 0;
+  const warnings = [];
+
+  const updates = await downloadSnapshotUpdates({
+    definitions: [definition],
+    now: stationsMetadata.newestEpoch + 60 * 60 * 1000,
+    maxAttempts: 2,
+    retryBaseDelayMs: 0,
+    sleepImpl: async () => {},
+    logger: { warn: (message) => warnings.push(message) },
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return {
+          ok: true,
+          text: async () => {
+            throw new DOMException("body timed out", "TimeoutError");
+          },
+        };
+      }
+      return new Response(stationsSnapshot, { status: 200 });
+    },
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(updates.length, 1);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /response body failed.*body timed out.*attempt 1\/2/i);
+});
+
+test("does not retry a permanent client error", async () => {
+  let attempts = 0;
+
+  await assert.rejects(
+    downloadSnapshotUpdates({
+      definitions: [definition],
+      maxAttempts: 4,
+      retryBaseDelayMs: 0,
+      logger: { warn: () => assert.fail("permanent failures must not be retried") },
+      fetchImpl: async () => {
+        attempts += 1;
+        return new Response("not found", { status: 404 });
+      },
+    }),
+    /stations download failed with HTTP 404/i,
+  );
+
+  assert.equal(attempts, 1);
+});
+
+test("reports the attempt count after exhausting temporary failure retries", async () => {
+  let attempts = 0;
+
+  await assert.rejects(
+    downloadSnapshotUpdates({
+      definitions: [definition],
+      maxAttempts: 3,
+      retryBaseDelayMs: 0,
+      logger: { warn: () => {} },
+      fetchImpl: async () => {
+        attempts += 1;
+        return new Response("upstream unavailable", { status: 500 });
+      },
+    }),
+    /stations download failed with HTTP 500 after 3 attempts/i,
+  );
+
+  assert.equal(attempts, 3);
+});
+
+test("keeps this repository's scheduled updater failure from triggering email", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/update-tle.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /schedule:/);
+  assert.match(workflow, /continue-on-error:\s*true/);
+});
+
 test("writes validated snapshots to the public TLE directory", async () => {
   const root = await mkdtemp(join(tmpdir(), "orbital-tle-"));
   try {
